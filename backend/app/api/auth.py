@@ -23,7 +23,7 @@ async def register(user: UserCreate):
         return TokenResponse(user_id=new_user.id, message="User registered successfully")
 
 @router.post("/login", response_model=TokenResponse)
-async def login(user: UserLogin, x_user_id: str = Header(None)):
+async def login(user: UserLogin):
     async with async_session() as session:
         result = await session.execute(select(User).where(User.email == user.email))
         db_user = result.scalar_one_or_none()
