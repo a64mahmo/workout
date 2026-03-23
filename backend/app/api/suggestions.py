@@ -30,7 +30,9 @@ async def suggest_exercises(user_id: str = Query(...)):
         
         for ex in exercises:
             volume = float(ex.volume)
-            if volume > 10000:
+            if volume > 15000:
+                suggestion = "High volume - consider deload week"
+            elif volume > 10000:
                 suggestion = "High volume - maintain current intensity"
             elif volume >= 5000:
                 suggestion = "Moderate volume - consider progression"
