@@ -1,0 +1,4 @@
+module HapticsPlugin {
+    header "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/HapticsPlugin.build/HapticsPlugin-Swift.h"
+    requires objc
+}

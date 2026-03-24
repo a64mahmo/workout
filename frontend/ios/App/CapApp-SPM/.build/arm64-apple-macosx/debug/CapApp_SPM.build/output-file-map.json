@@ -1,0 +1,11 @@
+{
+  "": {
+    "swift-dependencies": "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/master.swiftdeps"
+  },
+  "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/Sources/CapApp-SPM/CapApp-SPM.swift": {
+    "dependencies": "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/CapApp-SPM.d",
+    "object": "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/CapApp-SPM.swift.o",
+    "swiftmodule": "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/CapApp-SPM~partial.swiftmodule",
+    "swift-dependencies": "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/CapApp-SPM.swiftdeps"
+  }
+}

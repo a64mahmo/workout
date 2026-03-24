@@ -1,0 +1,4 @@
+module CapApp_SPM {
+    header "/Users/abdallhmahmood/dev/workout/frontend/ios/App/CapApp-SPM/.build/arm64-apple-macosx/debug/CapApp_SPM.build/CapApp-SPM-Swift.h"
+    requires objc
+}

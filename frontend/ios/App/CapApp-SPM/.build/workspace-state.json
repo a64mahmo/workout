@@ -1,0 +1,24 @@
+{
+  "object" : {
+    "artifacts" : [
+
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "haptics",
+          "kind" : "fileSystem",
+          "location" : "/Users/abdallhmahmood/dev/workout/frontend/node_modules/@capacitor/haptics",
+          "name" : "haptics"
+        },
+        "state" : {
+          "name" : "fileSystem",
+          "path" : "/Users/abdallhmahmood/dev/workout/frontend/node_modules/@capacitor/haptics"
+        },
+        "subpath" : "haptics"
+      }
+    ]
+  },
+  "version" : 6
+}
