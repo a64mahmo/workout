@@ -1,0 +1,150 @@
+// Workout Tracker Database Schema
+// Generated from SQLAlchemy models
+
+Project WorkoutTracker {
+  database_type: 'SQLite'
+  Note: 'Workout tracking application database schema'
+}
+
+// ============================================
+// USERS
+// ============================================
+Table users {
+  id varchar [pk]
+  email varchar [unique, not null]
+  name varchar [not null]
+  hashed_password varchar [not null]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// EXERCISES
+// ============================================
+Table exercises {
+  id varchar [pk]
+  name varchar [not null]
+  muscle_group varchar [not null]
+  description text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// MESO CYCLES
+// ============================================
+Table meso_cycles {
+  id varchar [pk]
+  user_id varchar [not null, ref: > users.id]
+  name varchar [not null]
+  start_date date
+  end_date date
+  goal varchar
+  is_active boolean [default: true]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// MICRO CYCLES
+// ============================================
+Table micro_cycles {
+  id varchar [pk]
+  meso_cycle_id varchar [not null, ref: > meso_cycles.id]
+  week_number integer [not null]
+  focus varchar
+  start_date date
+  end_date date
+}
+
+// ============================================
+// TRAINING SESSIONS
+// ============================================
+Table training_sessions {
+  id varchar [pk]
+  user_id varchar [not null, ref: > users.id]
+  meso_cycle_id varchar [ref: > meso_cycles.id]
+  micro_cycle_id varchar [ref: > micro_cycles.id]
+  name varchar [not null]
+  scheduled_date date
+  actual_date date
+  status varchar [default: 'scheduled']
+  notes text
+  total_volume float [default: 0]
+}
+
+// ============================================
+// SESSION EXERCISES
+// ============================================
+Table session_exercises {
+  id varchar [pk]
+  session_id varchar [not null, ref: > training_sessions.id]
+  exercise_id varchar [not null, ref: > exercises.id]
+  order_index integer [default: 0]
+  notes text
+}
+
+// ============================================
+// EXERCISE SETS
+// ============================================
+Table exercise_sets {
+  id varchar [pk]
+  session_exercise_id varchar [not null, ref: > session_exercises.id]
+  set_number integer [not null]
+  reps integer
+  weight float
+  rpe float
+  is_warmup boolean [default: false]
+  is_completed boolean [default: false]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// VOLUME HISTORY
+// ============================================
+Table volume_history {
+  id varchar [pk]
+  user_id varchar [not null, ref: > users.id]
+  exercise_id varchar [not null, ref: > exercises.id]
+  session_id varchar [not null, ref: > training_sessions.id]
+  total_volume float [not null]
+  calculated_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// PLANS
+// ============================================
+Table plans {
+  id varchar [pk]
+  user_id varchar [not null, ref: > users.id]
+  meso_cycle_id varchar [ref: > meso_cycles.id]
+  name varchar [not null]
+  description text
+  is_active boolean [default: true]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+// ============================================
+// PLAN SESSIONS
+// ============================================
+Table plan_sessions {
+  id varchar [pk]
+  plan_id varchar [not null, ref: > plans.id]
+  name varchar [not null]
+  order_index integer [default: 0]
+  scheduled_date date
+  notes text
+}
+
+// ============================================
+// PLAN EXERCISES
+// ============================================
+Table plan_exercises {
+  id varchar [pk]
+  plan_session_id varchar [not null, ref: > plan_sessions.id]
+  exercise_id varchar [not null, ref: > exercises.id]
+  order_index integer [default: 0]
+  target_sets integer [default: 3]
+  target_reps integer [default: 10]
+  target_weight float
+  target_rpe float
+  rest_seconds integer [default: 60]
+  notes text
+}
