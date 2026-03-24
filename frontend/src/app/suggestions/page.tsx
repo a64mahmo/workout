@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import type { ExerciseSuggestion, WeightSuggestion } from '@/types';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 import {
   Select,
@@ -18,16 +18,17 @@ const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export default function SuggestionsPage() {
   const [selectedExercise, setSelectedExercise] = useState('');
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
-
-  useEffect(() => {
-    let stored = localStorage.getItem('userId');
-    if (!stored || stored === 'default-user') {
-      localStorage.setItem('userId', DEFAULT_USER_ID);
-      stored = DEFAULT_USER_ID;
+  const [userId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('userId');
+      if (!stored || stored === 'default-user') {
+        localStorage.setItem('userId', DEFAULT_USER_ID);
+        return DEFAULT_USER_ID;
+      }
+      return stored;
     }
-    setUserId(stored);
-  }, []);
+    return DEFAULT_USER_ID;
+  });
 
   const { data: exerciseSuggestions, isLoading: loadingExercises } = useQuery({
     queryKey: ['suggestions', 'exercises', userId],
@@ -45,7 +46,7 @@ export default function SuggestionsPage() {
     },
   });
 
-  const { data: weightSuggestion, refetch: fetchWeight } = useQuery({
+  const { data: weightSuggestion } = useQuery({
     queryKey: ['suggestions', 'weight', userId, selectedExercise],
     queryFn: async () => {
       if (!selectedExercise) return null;

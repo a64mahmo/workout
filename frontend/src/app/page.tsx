@@ -2,13 +2,14 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { api } from '@/lib/api';
 import type { MesoCycle, TrainingSession } from '@/types';
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
 import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target } from 'lucide-react';
 
@@ -21,17 +22,18 @@ const goalColors: Record<string, string> = {
 };
 
 export default function Dashboard() {
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
   const router = useRouter();
-
-  useEffect(() => {
-    let stored = localStorage.getItem('userId');
-    if (!stored || stored === 'default-user') {
-      localStorage.setItem('userId', DEFAULT_USER_ID);
-      stored = DEFAULT_USER_ID;
+  const [userId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('userId');
+      if (!stored || stored === 'default-user') {
+        localStorage.setItem('userId', DEFAULT_USER_ID);
+        return DEFAULT_USER_ID;
+      }
+      return stored;
     }
-    setUserId(stored);
-  }, []);
+    return DEFAULT_USER_ID;
+  });
 
   const { data: cycles } = useQuery({
     queryKey: ['cycles', userId],

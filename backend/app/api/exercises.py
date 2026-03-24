@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import uuid
 from ..database import async_session
-from ..models import Exercise
+from ..models import Exercise, TrainingSession
 from ..schemas import ExerciseCreate, ExerciseUpdate, ExerciseResponse
 
 router = APIRouter(prefix="/api/exercises", tags=["exercises"])
@@ -71,3 +72,49 @@ async def delete_exercise(exercise_id: str):
         await session.delete(exercise)
         await session.commit()
         return {"message": "Exercise deleted"}
+
+@router.get("/{exercise_id}/history")
+async def get_exercise_history(
+    exercise_id: str,
+    user_id: str = Query(...),
+    limit: int = Query(10, ge=1, le=50)
+):
+    from app.models.models import SessionExercise as SES, ExerciseSet as ES
+    async with async_session() as session:
+        result = await session.execute(
+            select(TrainingSession)
+            .join(SES, SES.session_id == TrainingSession.id)
+            .where(SES.exercise_id == exercise_id)
+            .where(TrainingSession.user_id == user_id)
+            .options(selectinload(TrainingSession.session_exercises).selectinload(SES.sets))
+            .order_by(TrainingSession.scheduled_date.desc())
+            .limit(limit)
+        )
+        sessions = result.scalars().all()
+        
+        history = []
+        for ts in sessions:
+            for se in ts.session_exercises:
+                if se.exercise_id != exercise_id:
+                    continue
+                sets_data = []
+                total_volume = 0
+                for s in sorted(se.sets, key=lambda x: x.set_number):
+                    if not s.is_warmup and s.is_completed:
+                        volume = (s.reps or 0) * (s.weight or 0)
+                        total_volume += volume
+                        sets_data.append({
+                            "set_number": s.set_number,
+                            "reps": s.reps or 0,
+                            "weight": s.weight or 0,
+                            "rpe": s.rpe
+                        })
+                
+                history.append({
+                    "session_date": ts.scheduled_date,
+                    "session_name": ts.name,
+                    "sets": sets_data,
+                    "total_volume": total_volume
+                })
+        
+        return history

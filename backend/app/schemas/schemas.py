@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -17,8 +17,7 @@ class UserResponse(BaseModel):
     name: str
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class TokenResponse(BaseModel):
     user_id: str
@@ -41,8 +40,7 @@ class ExerciseResponse(BaseModel):
     description: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class MesoCycleCreate(BaseModel):
     name: str
@@ -68,8 +66,7 @@ class MesoCycleResponse(BaseModel):
     is_active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class MicroCycleCreate(BaseModel):
     week_number: int
@@ -91,8 +88,7 @@ class MicroCycleResponse(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class SessionCreate(BaseModel):
     name: str
@@ -115,22 +111,22 @@ class ExerciseSetResponse(BaseModel):
     reps: Optional[int] = None
     weight: Optional[float] = None
     rpe: Optional[float] = None
-    is_warmup: bool
-    is_completed: bool
+    is_warmup: bool = False
+    is_completed: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class SessionExerciseResponse(BaseModel):
     id: str
     exercise_id: str
     order_index: int
     notes: Optional[str] = None
+    rest_seconds: Optional[int] = 60
     sets: List[ExerciseSetResponse] = []
+    exercise: Optional[ExerciseResponse] = None
     exercise_name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 class SessionResponse(BaseModel):
     id: str
@@ -138,13 +134,12 @@ class SessionResponse(BaseModel):
     name: str
     scheduled_date: Optional[str] = None
     actual_date: Optional[str] = None
-    status: str
+    status: str = "scheduled"
     notes: Optional[str] = None
-    total_volume: float
-    session_exercises: List[SessionExerciseResponse] = []
+    total_volume: Optional[float] = 0.0
+    exercises: List[SessionExerciseResponse] = Field(default=[], validation_alias="session_exercises")
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 class SessionExerciseCreate(BaseModel):
     exercise_id: str

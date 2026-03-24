@@ -16,6 +16,7 @@ class User(Base):
     meso_cycles = relationship("MesoCycle", back_populates="user")
     sessions = relationship("TrainingSession", back_populates="user")
     volume_history = relationship("VolumeHistory", back_populates="user")
+    plans = relationship("Plan", back_populates="user")
 
 class Exercise(Base):
     __tablename__ = "exercises"
@@ -116,3 +117,46 @@ class VolumeHistory(Base):
 
     user = relationship("User", back_populates="volume_history")
     exercise = relationship("Exercise", back_populates="volume_history")
+
+class Plan(Base):
+    __tablename__ = "plans"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="plans")
+    sessions = relationship("PlanSession", back_populates="plan", cascade="all, delete-orphan")
+
+class PlanSession(Base):
+    __tablename__ = "plan_sessions"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    plan_id = Column(String, ForeignKey("plans.id"), nullable=False)
+    name = Column(String, nullable=False)
+    order_index = Column(Integer, default=0)
+    scheduled_date = Column(String)
+    notes = Column(Text)
+
+    plan = relationship("Plan", back_populates="sessions")
+    exercises = relationship("PlanExercise", back_populates="session", cascade="all, delete-orphan")
+
+class PlanExercise(Base):
+    __tablename__ = "plan_exercises"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=False)
+    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
+    order_index = Column(Integer, default=0)
+    target_sets = Column(Integer, default=3)
+    target_reps = Column(Integer, default=10)
+    target_weight = Column(Float)
+    target_rpe = Column(Float)
+    rest_seconds = Column(Integer, default=60)
+    notes = Column(Text)
+
+    session = relationship("PlanSession", back_populates="exercises")
+    exercise = relationship("Exercise")

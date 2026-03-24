@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -14,13 +13,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import type { WorkoutPlan, WorkoutPlanSession, WorkoutPlanExercise, Exercise, MesoCycle } from '@/types';
+import type { WorkoutPlan, WorkoutPlanExercise, Exercise } from '@/types';
 import {
   ChevronLeft, Plus, Trash2, GripVertical, Dumbbell, Check, X, Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const USER_ID = '00000000-0000-0000-0000-000000000000';
 
 const muscleColors: Record<string, string> = {
   chest: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',

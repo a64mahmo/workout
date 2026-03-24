@@ -441,9 +441,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const userId = session?.user_id ?? USER_ID;
 
+  const initializedSessionIdRef = useRef<string | null>(null);
+
   // Initialise edit + rest state for newly-loaded exercises/sets
   useEffect(() => {
-    if (!session) return;
+    if (!session || initializedSessionIdRef.current === session.id) {
+      return;
+    }
+
     setSetEdits(prev => {
       const next = { ...prev };
       for (const se of session.exercises) {
@@ -468,9 +473,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       }
       return next;
     });
+
+    initializedSessionIdRef.current = session.id;
   }, [session]);
 
   const addedIds = new Set(session?.exercises.map(se => se.exercise_id) ?? []);
+
   const filteredExercises = allExercises?.filter(
     ex => !addedIds.has(ex.id) && ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
   ) ?? [];
@@ -632,7 +640,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   });
 
   const toggleHistory = (seId: string) =>
-    setExpandedHistory(prev => { const n = new Set(prev); n.has(seId) ? n.delete(seId) : n.add(seId); return n; });
+    setExpandedHistory(prev => { const n = new Set(prev); void (n.has(seId) ? n.delete(seId) : n.add(seId)); return n; });
 
   // ── Render helpers ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -676,7 +684,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </span>
             </div>
           )}
-          <Badge variant={statusVariant as any} className="shrink-0">{session.status}</Badge>
+          <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
           {session.status !== 'completed' && completedSets > 0 && (
             <Button size="sm" onClick={() => completeMutation.mutate()}
               disabled={completeMutation.isPending} className="shrink-0">

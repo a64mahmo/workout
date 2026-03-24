@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -46,16 +46,17 @@ export default function SessionsPage() {
   });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
-
-  useEffect(() => {
-    let stored = localStorage.getItem('userId');
-    if (!stored || stored === 'default-user') {
-      localStorage.setItem('userId', DEFAULT_USER_ID);
-      stored = DEFAULT_USER_ID;
+  const [userId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('userId');
+      if (!stored || stored === 'default-user') {
+        localStorage.setItem('userId', DEFAULT_USER_ID);
+        return DEFAULT_USER_ID;
+      }
+      return stored;
     }
-    setUserId(stored);
-  }, []);
+    return DEFAULT_USER_ID;
+  });
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['sessions', userId],
@@ -262,15 +263,17 @@ function SessionRow({
   const vol = sessionVolume(session);
   const exerciseCount = session.exercises?.length ?? 0;
 
-  let dateLabel = session.scheduled_date;
-  let dayNum = '';
-  let monthStr = '';
-  try {
-    const d = new Date(session.scheduled_date + 'T00:00:00');
-    dayNum = format(d, 'd');
-    monthStr = format(d, 'MMM');
-    dateLabel = format(d, 'MMM d');
-  } catch {}
+
+  const { dayNum, monthStr } = useMemo(() => {
+    let dn = '';
+    let ms = '';
+    try {
+      const d = new Date(session.scheduled_date + 'T00:00:00');
+      dn = format(d, 'd');
+      ms = format(d, 'MMM');
+    } catch {}
+    return { dayNum: dn, monthStr: ms };
+  }, [session.scheduled_date]);
 
   return (
     <div className="group flex items-center gap-1 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors">

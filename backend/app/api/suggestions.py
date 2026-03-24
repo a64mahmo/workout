@@ -31,20 +31,24 @@ async def suggest_exercises(user_id: str = Query(...)):
         for ex in exercises:
             volume = float(ex.volume)
             if volume > 10000:
-                suggestion = "High volume - maintain current intensity"
+                suggestion_reason = "High volume - maintain current intensity"
             elif volume >= 5000:
-                suggestion = "Moderate volume - consider progression"
+                suggestion_reason = "Moderate volume - consider progression"
             elif volume > 0:
-                suggestion = "Low volume - good for adding volume"
+                suggestion_reason = "Low volume - good for adding volume"
             else:
-                suggestion = "New exercise - start with light weight"
+                suggestion_reason = "New exercise - start with light weight"
             
             suggestions.append({
-                "id": ex.id,
-                "name": ex.name,
-                "muscle_group": ex.muscle_group,
-                "volume_30d": volume,
-                "suggestion": suggestion
+                "exercise": {
+                    "id": ex.id,
+                    "name": ex.name,
+                    "muscle_group": ex.muscle_group,
+                    "description": None,
+                    "created_at": None
+                },
+                "total_volume": volume,
+                "suggestion_reason": suggestion_reason
             })
         
         return suggestions
@@ -110,7 +114,7 @@ async def volume_by_muscle_group(user_id: str = Query(...)):
         
         groups = result.all()
         
-        return [
-            {"muscle_group": g.muscle_group, "volume_30d": float(g.volume)}
+        return {
+            g.muscle_group: f"{int(g.volume)} lbs total"
             for g in groups
-        ]
+        }

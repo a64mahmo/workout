@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,8 @@ import type { MesoCycle } from '@/types';
 import { format, addWeeks, differenceInDays, parseISO } from 'date-fns';
 import { Plus, Target, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AxiosError } from 'axios';
+
 
 const goals = ['strength', 'hypertrophy', 'endurance'];
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -77,16 +79,17 @@ export default function CyclesPage() {
     goal: 'hypertrophy',
   });
   const queryClient = useQueryClient();
-  const [userId, setUserId] = useState(DEFAULT_USER_ID);
-
-  useEffect(() => {
-    let stored = localStorage.getItem('userId');
-    if (!stored || stored === 'default-user') {
-      localStorage.setItem('userId', DEFAULT_USER_ID);
-      stored = DEFAULT_USER_ID;
+  const [userId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('userId');
+      if (!stored || stored === 'default-user') {
+        localStorage.setItem('userId', DEFAULT_USER_ID);
+        return DEFAULT_USER_ID;
+      }
+      return stored;
     }
-    setUserId(stored);
-  }, []);
+    return DEFAULT_USER_ID;
+  });
 
   const { data: cycles, isLoading } = useQuery({
     queryKey: ['cycles', userId],
@@ -111,7 +114,7 @@ export default function CyclesPage() {
         goal: 'hypertrophy',
       });
     },
-    onError: (error: any) => {
+    onError: (error: AxiosError | Error) => {
       alert(
         'Failed: ' +
           (error.response?.data?.detail?.[0]?.msg || error.message)
