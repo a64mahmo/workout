@@ -114,11 +114,10 @@ export default function CyclesPage() {
         goal: 'hypertrophy',
       });
     },
-    onError: (error: AxiosError | Error) => {
-      alert(
-        'Failed: ' +
-          (error.response?.data?.detail?.[0]?.msg || error.message)
-      );
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosError<{detail?: Array<{msg?: string}>}>;
+      const message = axiosError.response?.data?.detail?.[0]?.msg || (error as Error).message;
+      alert('Failed: ' + message);
     },
   });
 
