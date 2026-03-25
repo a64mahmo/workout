@@ -32,7 +32,7 @@ function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []); 
+  useEffect(() => setMounted(true), []);
 
   if (!mounted) return <Button variant="ghost" size="icon-sm" />;
 
@@ -54,47 +54,61 @@ export function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <nav className="border-b bg-background/95 backdrop-blur sticky top-0 z-40">
+    <nav
+      className={cn(
+        'border-b sticky top-0 z-40 backdrop-blur transition-colors',
+        isMenuOpen ? 'bg-background/70' : 'bg-background/95'
+      )}
+    >
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <div className="size-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <Dumbbell className="size-3.5 text-primary-foreground" />
-            </div>
-            <span className="font-bold text-base tracking-tight">Workout</span>
-          </Link>
-
-        </div>
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-0.5">
-            {navItems.map((item) => {
-              const isActive =
-                item.href === '/'
-                  ? pathname === '/'
-                  : pathname.startsWith(item.href);
-              return (
-                <Link key={item.href} href={item.href}>
-                  <button
-                    className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
-                      isActive
-                        ? 'text-primary bg-primary/10'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
-                    )}
-                  >
-                    <item.icon
-                      className={cn(
-                        'size-3.5',
-                        isActive ? 'text-primary' : 'text-muted-foreground'
-                      )}
-                    />
-                    {item.label}
-                  </button>
-                </Link>
-              );
-            })}
+        {/* Logo */}
+        <Link
+          href="/"
+          className="flex items-center gap-2 transition-opacity hover:opacity-80"
+        >
+          <div className="size-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
+            <Dumbbell className="size-3.5 text-primary-foreground" />
           </div>
+          <span className="font-bold text-base tracking-tight">
+            Workout
+          </span>
+        </Link>
 
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex items-center gap-0.5">
+          {navItems.map((item) => {
+            const isActive =
+              item.href === '/'
+                ? pathname === '/'
+                : pathname.startsWith(item.href);
+
+            return (
+              <Link key={item.href} href={item.href}>
+                <button
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                    'hover:bg-muted hover:cursor-pointer',
+                    isActive
+                      ? 'text-primary bg-primary/10'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <item.icon
+                    className={cn(
+                      'size-3.5',
+                      isActive
+                        ? 'text-primary'
+                        : 'text-muted-foreground'
+                    )}
+                  />
+                  {item.label}
+                </button>
+              </Link>
+            );
+          })}
+        </div>
+
+        {/* Right Controls */}
         <div className="flex items-center gap-2">
           <div className="hidden md:block">
             <ThemeToggle />
@@ -104,7 +118,7 @@ export function Navigation() {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="md:hidden hover:cursor-pointer"
+            className="md:hidden"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
           >
             {isMenuOpen ? (
@@ -117,77 +131,67 @@ export function Navigation() {
         </div>
       </div>
 
-      {/* Mobile Navigation Menu - Full Screen Overlay */}
+      {/* MOBILE DROPDOWN MENU */}
       {isMenuOpen && (
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 md:hidden animate-in fade-in duration-200"
+            className="fixed inset-0 z-30 md:hidden animate-in fade-in duration-200"
             onClick={() => setIsMenuOpen(false)}
           />
 
-          {/* Menu Panel */}
-          <div className="fixed top-0 left-0 h-full w-80 max-w-[85vw] bg-background border-r shadow-xl z-50 md:hidden animate-in slide-in-from-left duration-300">
-            <div className="flex flex-col h-full">
-              {/* Header */}
-              <div className="flex items-center justify-between p-4 border-b">
-                <div className="flex items-center gap-2">
-                  <div className="size-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                    <Dumbbell className="size-3.5 text-primary-foreground" />
-                  </div>
-                  <span className="font-bold text-base tracking-tight">Workout</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="hover:cursor-pointer"
-                >
-                  <X className="size-4" />
-                  <span className="sr-only">Close menu</span>
-                </Button>
-              </div>
+          {/* Dropdown Panel */}
+          <div
+            className="
+        absolute top-full left-0 right-0
+        md:hidden
+        border-b shadow-lg
+        bg-background/95 backdrop-blur-xl
+        animate-in fade-in duration-600
+      "
+          >
+            <div className="container mx-auto px-4 py-4">
+              <div className="flex flex-col gap-2">
+                {navItems.map((item) => {
+                  const isActive =
+                    item.href === '/'
+                      ? pathname === '/'
+                      : pathname.startsWith(item.href);
 
-              {/* Navigation Items */}
-              <div className="flex-1 px-4 py-6">
-                <div className="flex flex-col gap-2">
-                  {navItems.map((item) => {
-                    const isActive =
-                      item.href === '/'
-                        ? pathname === '/'
-                        : pathname.startsWith(item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setIsMenuOpen(false)}
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      <button
+                        className={cn(
+                          'flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all',
+                          'hover:bg-muted',
+                          isActive
+                            ? 'text-primary bg-primary/10'
+                            : 'text-foreground'
+                        )}
                       >
-                        <button
+                        <item.icon
                           className={cn(
-                            'flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
+                            'size-5',
                             isActive
-                              ? 'text-primary bg-primary/10 border border-primary/20'
-                              : 'text-foreground hover:text-foreground'
+                              ? 'text-primary'
+                              : 'text-muted-foreground'
                           )}
-                        >
-                          <item.icon
-                            className={cn(
-                              'size-5',
-                              isActive ? 'text-primary' : 'text-muted-foreground'
-                            )}
-                          />
-                          {item.label}
-                        </button>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
+                        />
+                        {item.label}
+                      </button>
+                    </Link>
+                  );
+                })}
 
-              {/* Footer with Theme Toggle */}
-              <div className="border-t p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">Theme</span>
+                {/* Theme Toggle */}
+                <div className="flex items-center justify-between border-t pt-4 mt-2">
+                  <span className="text-sm text-muted-foreground">
+                    Theme
+                  </span>
                   <ThemeToggle />
                 </div>
               </div>
@@ -195,6 +199,7 @@ export function Navigation() {
           </div>
         </>
       )}
+
     </nav>
   );
 }
