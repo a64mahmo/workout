@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function FitbitCallbackPage() {
+function FitbitCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -80,5 +80,18 @@ export default function FitbitCallbackPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function FitbitCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-md mx-auto py-20 text-center space-y-6">
+        <Loader2 className="size-10 animate-spin mx-auto text-primary" />
+        <p className="font-semibold">Loading…</p>
+      </div>
+    }>
+      <FitbitCallbackContent />
+    </Suspense>
   );
 }
