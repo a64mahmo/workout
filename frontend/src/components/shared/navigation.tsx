@@ -12,6 +12,8 @@ import {
   Calendar,
   Zap,
   ClipboardList,
+  Menu,
+  X,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
@@ -38,6 +40,7 @@ function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon-sm"
+      className="hover:cursor-pointer"
       onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
     >
       <SunIcon className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
@@ -49,17 +52,21 @@ function ThemeToggle() {
 
 export function Navigation() {
   const pathname = usePathname();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
     <nav className="border-b bg-background/95 backdrop-blur sticky top-0 z-40">
       <div className="container mx-auto flex h-14 items-center justify-between px-4">
         <div className="flex items-center gap-6">
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
             <div className="size-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
               <Dumbbell className="size-3.5 text-primary-foreground" />
             </div>
             <span className="font-bold text-base tracking-tight">Workout</span>
           </Link>
+
+        </div>
+          {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-0.5">
             {navItems.map((item) => {
               const isActive =
@@ -70,10 +77,10 @@ export function Navigation() {
                 <Link key={item.href} href={item.href}>
                   <button
                     className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
                       isActive
                         ? 'text-primary bg-primary/10'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
                     )}
                   >
                     <item.icon
@@ -88,9 +95,66 @@ export function Navigation() {
               );
             })}
           </div>
+
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+
+          {/* Mobile Menu Button */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="md:hidden hover:cursor-pointer"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+          >
+            {isMenuOpen ? (
+              <X className="size-4" />
+            ) : (
+              <Menu className="size-4" />
+            )}
+            <span className="sr-only">Toggle menu</span>
+          </Button>
         </div>
-        <ThemeToggle />
       </div>
+
+      {/* Mobile Navigation Menu */}
+      {isMenuOpen && (
+        <div className="md:hidden border-t bg-background/95 backdrop-blur animate-in slide-in-from-top-2 duration-500">
+          <div className="container mx-auto px-4 py-2">
+            <div className="flex flex-col gap-1">
+              {navItems.map((item) => {
+                const isActive =
+                  item.href === '/'
+                    ? pathname === '/'
+                    : pathname.startsWith(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <button
+                      className={cn(
+                        'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
+                        isActive
+                          ? 'text-primary bg-primary/10'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <item.icon
+                        className={cn(
+                          'size-4',
+                          isActive ? 'text-primary' : 'text-muted-foreground'
+                        )}
+                      />
+                      {item.label}
+                    </button>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
