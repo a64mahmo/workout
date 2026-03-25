@@ -451,6 +451,88 @@ Access the app at `http://localhost:3000`
    npx cap open ios
    ```
 
+## Building the iOS App
+
+### Prerequisites
+
+- macOS with Xcode installed
+- Apple Developer account (for device/simulator testing and App Store distribution)
+- Xcode Command Line Tools: `xcode-select --install`
+
+### Option 1: Using Capacitor CLI (Recommended)
+
+The simplest way to build the IPA:
+
+```bash
+cd frontend
+
+# Build the web app and sync to iOS
+npm run build
+npx cap sync ios
+
+# Build the iOS project
+npx cap build ios --scheme App
+```
+
+This creates an unsigned IPA at `ios/App/App.ipa`.
+
+### Option 2: Using Xcode
+
+1. Open the project in Xcode:
+   ```bash
+   cd frontend
+   npx cap open ios
+   ```
+
+2. Select your target device/simulator and signing team in Xcode
+
+3. Build using Product > Build (Cmd+B) or archive using Product > Archive
+
+4. To export an IPA: Product > Export > Choose your distribution method
+
+### Option 3: Using xcodebuild (Command Line)
+
+Build directly from the command line:
+
+```bash
+cd frontend
+
+# Build web and sync to iOS
+npm run build
+npx cap sync ios
+
+# Build the archive
+xcodebuild -workspace ios/App/App.xcworkspace \
+  -scheme App \
+  -configuration Release \
+  -archivePath App.xcarchive \
+  archive
+
+# Export as IPA
+xcodebuild -exportArchive \
+  -archivePath App.xcarchive \
+  -exportOptionsPlist ios/App/ExportOptions.plist \
+  -exportPath ./dist
+```
+
+The IPA will be at `./dist/App.ipa`.
+
+### App Signing
+
+For device deployment or App Store distribution, you need:
+- **Apple Developer Program** membership
+- **Signing Certificate** (Development or Distribution)
+- **Provisioning Profile** (Development or Distribution)
+
+Configure signing in Xcode under Signing & Capabilities, or use environment variables:
+```bash
+npx cap build ios \
+  --xcode-team-id YOUR_TEAM_ID \
+  --xcode-export-method development
+```
+
+Export methods: `app-store-connect`, `release-testing`, `enterprise`, `debugging`, `developer-id`
+
 ---
 
 ## Frontend Pages
