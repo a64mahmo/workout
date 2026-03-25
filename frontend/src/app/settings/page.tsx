@@ -98,7 +98,7 @@ export default function SettingsPage() {
               variant="outline"
               onClick={() => disconnectMutation.mutate()}
               disabled={disconnectMutation.isPending}
-              className="gap-2"
+              className="gap-2 w-full justify-center cursor-pointer"
             >
               {disconnectMutation.isPending ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -111,7 +111,7 @@ export default function SettingsPage() {
             <Button
               onClick={() => connectMutation.mutate()}
               disabled={connectMutation.isPending || connecting}
-              className="gap-2"
+              className="gap-2 w-full justify-center cursor-pointer"
             >
               {connectMutation.isPending || connecting ? (
                 <Loader2 className="size-4 animate-spin" />

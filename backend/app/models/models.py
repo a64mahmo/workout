@@ -89,8 +89,8 @@ class TrainingSession(Base):
     user = relationship("User", back_populates="sessions")
     meso_cycle = relationship("MesoCycle", back_populates="sessions")
     micro_cycle = relationship("MicroCycle", back_populates="sessions")
-    session_exercises = relationship("SessionExercise", back_populates="session", cascade="all, delete-orphan")
-    health_metric = relationship("HealthMetric", back_populates="session", uselist=False)
+    session_exercises = relationship("SessionExercise", back_populates="session", cascade="all, delete-orphan", passive_deletes=True)
+    health_metric = relationship("HealthMetric", back_populates="session", uselist=False, passive_deletes=True)
 
 class SessionExercise(Base):
     __tablename__ = "session_exercises"
