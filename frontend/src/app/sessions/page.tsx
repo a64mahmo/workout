@@ -134,7 +134,7 @@ export default function SessionsPage() {
               </Button>
             }
           />
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-md overflow-x-hidden max-sm:w-[calc(100%-2rem)] max-sm:p-4">
             <DialogHeader>
               <DialogTitle>Create Session</DialogTitle>
             </DialogHeader>
@@ -168,11 +168,9 @@ export default function SessionsPage() {
                 type="date"
                 value={newSession.scheduled_date}
                 onChange={(e) =>
-                  setNewSession({
-                    ...newSession,
-                    scheduled_date: e.target.value,
-                  })
+                  setNewSession({ ...newSession, scheduled_date: e.target.value })
                 }
+                style={{ WebkitAppearance: 'none', maxWidth: '100%', boxSizing: 'border-box' }}
               />
               <Input
                 placeholder="Notes (optional)"
@@ -278,7 +276,7 @@ function SessionRow({
       const d = new Date(session.scheduled_date + 'T00:00:00');
       dn = format(d, 'd');
       ms = format(d, 'MMM');
-    } catch {}
+    } catch { }
     return { dayNum: dn, monthStr: ms };
   }, [session.scheduled_date]);
 

@@ -677,40 +677,44 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       {/* ── Sticky header ──────────────────────────────────────────────────── */}
       <div className="sticky top-14 z-30 -mx-4 bg-background/95 backdrop-blur border-b px-4 py-3">
-        <div className="flex items-center gap-3 max-w-3xl mx-auto">
-          <Button variant="ghost" size="icon-sm" onClick={() => router.back()} className="shrink-0">
-            <ChevronLeft className="size-4" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-bold text-base leading-tight truncate">{session.name}</h1>
-            <p className="text-xs text-muted-foreground">{dateStr}</p>
-          </div>
-          {totalVolume > 0 && (
-            <div className="flex items-center gap-1.5 text-primary font-semibold text-sm shrink-0">
-              <Flame className="size-4" />
-              <span className="tabular-nums">
-                {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs
-              </span>
+        <div className="flex flex-col gap-2 max-w-3xl mx-auto sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Button variant="ghost" size="icon-sm" onClick={() => router.back()} className="shrink-0">
+              <ChevronLeft className="size-4" />
+            </Button>
+            <div className="flex-1 min-w-0">
+              <h1 className="font-bold text-base leading-tight truncate">{session.name}</h1>
+              <p className="text-xs text-muted-foreground">{dateStr}</p>
             </div>
-          )}
-          <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
-          {session.status === 'scheduled' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => cancelMutation.mutate()}
-              disabled={cancelMutation.isPending}
-              className="shrink-0"
-            >
-              {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
-            </Button>
-          )}
-          {session.status !== 'completed' && completedSets > 0 && (
-            <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
-              disabled={completeMutation.isPending} className="shrink-0">
-              {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
-            </Button>
-          )}
+          </div>
+          <div className="flex items-center gap-2 justify-end">
+            {totalVolume > 0 && (
+              <div className="flex items-center gap-1.5 text-primary font-semibold text-sm shrink-0">
+                <Flame className="size-4" />
+                <span className="tabular-nums">
+                  {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs
+                </span>
+              </div>
+            )}
+            <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
+            {session.status === 'scheduled' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+                className="shrink-0"
+              >
+                {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
+              </Button>
+            )}
+            {session.status !== 'completed' && completedSets > 0 && (
+              <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
+                disabled={completeMutation.isPending} className="shrink-0">
+                {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 

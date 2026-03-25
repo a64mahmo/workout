@@ -40,7 +40,6 @@ function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon-sm"
-      className="hover:cursor-pointer"
       onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
     >
       <SunIcon className="size-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
@@ -97,7 +96,9 @@ export function Navigation() {
           </div>
 
         <div className="flex items-center gap-2">
-          <ThemeToggle />
+          <div className="hidden md:block">
+            <ThemeToggle />
+          </div>
 
           {/* Mobile Menu Button */}
           <Button
@@ -116,44 +117,83 @@ export function Navigation() {
         </div>
       </div>
 
-      {/* Mobile Navigation Menu */}
+      {/* Mobile Navigation Menu - Full Screen Overlay */}
       {isMenuOpen && (
-        <div className="md:hidden border-t bg-background/95 backdrop-blur animate-in slide-in-from-top-2 duration-500">
-          <div className="container mx-auto px-4 py-2">
-            <div className="flex flex-col gap-1">
-              {navItems.map((item) => {
-                const isActive =
-                  item.href === '/'
-                    ? pathname === '/'
-                    : pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    <button
-                      className={cn(
-                        'flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
-                        isActive
-                          ? 'text-primary bg-primary/10'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                    >
-                      <item.icon
-                        className={cn(
-                          'size-4',
-                          isActive ? 'text-primary' : 'text-muted-foreground'
-                        )}
-                      />
-                      {item.label}
-                    </button>
-                  </Link>
-                );
-              })}
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 md:hidden animate-in fade-in duration-200"
+            onClick={() => setIsMenuOpen(false)}
+          />
+
+          {/* Menu Panel */}
+          <div className="fixed top-0 left-0 h-full w-80 max-w-[85vw] bg-background border-r shadow-xl z-50 md:hidden animate-in slide-in-from-left duration-300">
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b">
+                <div className="flex items-center gap-2">
+                  <div className="size-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
+                    <Dumbbell className="size-3.5 text-primary-foreground" />
+                  </div>
+                  <span className="font-bold text-base tracking-tight">Workout</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="hover:cursor-pointer"
+                >
+                  <X className="size-4" />
+                  <span className="sr-only">Close menu</span>
+                </Button>
+              </div>
+
+              {/* Navigation Items */}
+              <div className="flex-1 px-4 py-6">
+                <div className="flex flex-col gap-2">
+                  {navItems.map((item) => {
+                    const isActive =
+                      item.href === '/'
+                        ? pathname === '/'
+                        : pathname.startsWith(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <button
+                          className={cn(
+                            'flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
+                            isActive
+                              ? 'text-primary bg-primary/10 border border-primary/20'
+                              : 'text-foreground hover:text-foreground'
+                          )}
+                        >
+                          <item.icon
+                            className={cn(
+                              'size-5',
+                              isActive ? 'text-primary' : 'text-muted-foreground'
+                            )}
+                          />
+                          {item.label}
+                        </button>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Footer with Theme Toggle */}
+              <div className="border-t p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-muted-foreground">Theme</span>
+                  <ThemeToggle />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </nav>
   );
