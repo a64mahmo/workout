@@ -35,6 +35,7 @@ import {
   Moon,
   Weight,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -258,6 +259,7 @@ function SetRow({
   onDelete,
   isCompleting,
   isUnchecking,
+  isEditable,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -268,31 +270,41 @@ function SetRow({
   onDelete: () => void;
   isCompleting: boolean;
   isUnchecking: boolean;
+  isEditable: boolean;
 }) {
-  if (set.is_completed) {
+  // Completed sets or non-editable → read-only view
+  if (set.is_completed || !isEditable) {
     return (
       <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border/20 first:border-t-0 group">
-        {/* Tap checkmark to uncheck */}
-        <button
-          onClick={onUncheck}
-          disabled={isUnchecking}
-          className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors"
-          title="Tap to edit"
-        >
-          {isUnchecking
-            ? <Circle className="size-5 animate-pulse" />
-            : <CheckCircle2 className="size-5" />}
-        </button>
+        {/* Tap checkmark to uncheck (only when editable) */}
+        {isEditable ? (
+          <button
+            onClick={onUncheck}
+            disabled={isUnchecking}
+            className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors"
+            title="Tap to edit"
+          >
+            {isUnchecking
+              ? <Circle className="size-5 animate-pulse" />
+              : set.is_completed ? <CheckCircle2 className="size-5" /> : <Circle className="size-5 text-muted-foreground/30" />}
+          </button>
+        ) : (
+          set.is_completed
+            ? <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
+            : <Circle className="size-5 text-muted-foreground/30 shrink-0" />
+        )}
         <span className="w-5 text-xs text-muted-foreground tabular-nums text-center shrink-0">
           {set.set_number}
         </span>
-        <span className="flex-1 text-sm text-muted-foreground/70 tabular-nums line-through">
+        <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
           {set.reps} × {set.weight} lbs{set.rpe ? ` @ ${set.rpe}` : ''}
         </span>
-        <button onClick={onDelete}
-          className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
-          <X className="size-3.5" />
-        </button>
+        {isEditable && (
+          <button onClick={onDelete}
+            className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
+            <X className="size-3.5" />
+          </button>
+        )}
       </div>
     );
   }
@@ -380,6 +392,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Per-set edit state
   const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
@@ -443,6 +456,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const userId = session?.user_id ?? USER_ID;
 
   const initializedSessionIdRef = useRef<string | null>(null);
+
+  // Auto-enable editing for non-completed sessions
+  const isCompleted = session?.status === 'completed' || session?.status === 'cancelled';
+  useEffect(() => {
+    if (session && session.status !== 'completed' && session.status !== 'cancelled') {
+      setIsEditing(true);
+    }
+  }, [session]);
 
   // Initialise edit + rest state for newly-loaded exercises/sets
   useEffect(() => {
@@ -746,6 +767,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
               </Button>
             )}
+            {isCompleted && (
+              <Button
+                variant={isEditing ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="shrink-0 gap-1.5"
+              >
+                <Pencil className="size-3.5" />
+                {isEditing ? 'Lock' : 'Edit'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -836,12 +868,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       </span>
                     )}
                     {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+                    {isEditing && (
                     <button
                       onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
                       className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                     >
                       <X className="size-3.5" />
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -889,6 +923,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         set={s}
                         isActive={s.id === firstPendingId}
                         editVal={edit}
+                        isEditable={isEditing}
                         onEdit={(field, val) => updateEdit(s.id, field, val)}
                         onComplete={() => {
                           const reps = parseInt(edit.reps);
@@ -944,6 +979,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* ── Add Exercise ───────────────────────────────────────────────────── */}
+      {isEditing && (
       <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
         <DialogTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
         <DialogContent className="sm:max-w-sm">
@@ -965,8 +1001,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
+      {isEditing && (
       <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); } }}>
         <DialogTrigger render={
           <Button variant="ghost" className="w-full gap-2 text-muted-foreground">
@@ -1055,6 +1093,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* ── Fitbit Integration ────────────────────────────────────────────── */}
       {(session.status === 'completed' || session.status === 'cancelled') && (

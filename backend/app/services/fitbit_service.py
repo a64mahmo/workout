@@ -84,15 +84,12 @@ class FitbitService:
             await db.commit()
             return user.fitbit_access_token
 
-    async def get_heart_rate(self, db: AsyncSession, user: User, start_time: datetime, end_time: datetime) -> Dict[str, Any]:
+    async def get_heart_rate(self, db: AsyncSession, user: User, date_str: str) -> Dict[str, Any]:
         token = await self._refresh_token(db, user)
-        date_str = start_time.strftime("%Y-%m-%d")
-        start_str = start_time.strftime("%H:%M")
-        end_str = end_time.strftime("%H:%M")
         
-        url = f"{self.base_url}/1/user/-/activities/heart/date/{date_str}/1d/1min/time/{start_str}/{end_str}.json"
+        url = f"{self.base_url}/1/user/-/activities/heart/date/{date_str}/1d.json"
         headers = {"Authorization": f"Bearer {token}"}
-
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
@@ -122,54 +119,60 @@ class FitbitService:
         if not user.fitbit_access_token:
             return
 
-        if session.start_time and session.end_time:
-            try:
-                hr_data = await self.get_heart_rate(db, user, session.start_time, session.end_time)
-                dataset = hr_data.get("activities-heart-intraday", {}).get("dataset", [])
-                if dataset:
-                    heart_rates = [d["value"] for d in dataset if d.get("value")]
-                    if heart_rates:
-                        session.average_hr = sum(heart_rates) // len(heart_rates)
-                        session.max_hr = max(heart_rates)
-            except Exception as e:
-                print(f"Error fetching heart rate: {e}")
-
-        # Sync Sleep and Weight for the session date
         date_str = session.actual_date or session.scheduled_date
-        if date_str:
+        if not date_str:
+            return
+
+        # Heart Rate (daily summary — resting HR + zone minutes)
+        try:
+            hr_data = await self.get_heart_rate(db, user, date_str)
+            activities_heart = hr_data.get("activities-heart", [])
+            if activities_heart:
+                value = activities_heart[0].get("value", {})
+                resting_hr = value.get("restingHeartRate")
+                if resting_hr:
+                    session.average_hr = resting_hr
+                zones = value.get("heartRateZones", [])
+                for zone in zones:
+                    if zone.get("name") == "Peak" and zone.get("max"):
+                        session.max_hr = zone["max"]
+                        break
+        except Exception as e:
+            print(f"Error fetching heart rate: {e}")
+
+        # Sync Sleep and Weight
+        try:
+            stmt = select(HealthMetric).where(HealthMetric.user_id == user.id, HealthMetric.date == date_str)
+            result = await db.execute(stmt)
+            metric = result.scalars().first()
+
+            if not metric:
+                metric = HealthMetric(user_id=user.id, date=date_str, session_id=session.id)
+                db.add(metric)
+            else:
+                metric.session_id = session.id
+
+            # Fetch Sleep
             try:
-                # Get existing or create new health metric
-                stmt = select(HealthMetric).where(HealthMetric.user_id == user.id, HealthMetric.date == date_str)
-                result = await db.execute(stmt)
-                metric = result.scalars().first()
-                
-                if not metric:
-                    metric = HealthMetric(user_id=user.id, date=date_str, session_id=session.id)
-                    db.add(metric)
-                else:
-                    metric.session_id = session.id
-
-                # Fetch Sleep
-                try:
-                    sleep_resp = await self.get_sleep_data(db, user, date_str)
-                    if sleep_resp.get("sleep"):
-                        main_sleep = next((s for s in sleep_resp["sleep"] if s.get("isMainSleep")), sleep_resp["sleep"][0])
-                        metric.sleep_duration_seconds = main_sleep.get("duration", 0) // 1000
-                        metric.sleep_efficiency = main_sleep.get("efficiency")
-                except Exception as e:
-                    print(f"Error fetching sleep: {e}")
-
-                # Fetch Weight
-                try:
-                    weight_resp = await self.get_body_weight(db, user, date_str)
-                    if weight_resp.get("weight"):
-                        latest_weight = weight_resp["weight"][-1]
-                        metric.weight_kg = latest_weight.get("weight")
-                        metric.body_fat_pct = latest_weight.get("fat")
-                        metric.bmi = latest_weight.get("bmi")
-                except Exception as e:
-                    print(f"Error fetching weight: {e}")
-
-                await db.commit()
+                sleep_resp = await self.get_sleep_data(db, user, date_str)
+                if sleep_resp.get("sleep"):
+                    main_sleep = next((s for s in sleep_resp["sleep"] if s.get("isMainSleep")), sleep_resp["sleep"][0])
+                    metric.sleep_duration_seconds = main_sleep.get("duration", 0) // 1000
+                    metric.sleep_efficiency = main_sleep.get("efficiency")
             except Exception as e:
-                print(f"Error syncing health metrics: {e}")
+                print(f"Error fetching sleep: {e}")
+
+            # Fetch Weight
+            try:
+                weight_resp = await self.get_body_weight(db, user, date_str)
+                if weight_resp.get("weight"):
+                    latest_weight = weight_resp["weight"][-1]
+                    metric.weight_kg = latest_weight.get("weight")
+                    metric.body_fat_pct = latest_weight.get("fat")
+                    metric.bmi = latest_weight.get("bmi")
+            except Exception as e:
+                print(f"Error fetching weight: {e}")
+
+            await db.commit()
+        except Exception as e:
+            print(f"Error syncing health metrics: {e}")
