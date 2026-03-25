@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    nginx supervisor curl && \
+    nginx supervisor curl gettext-base && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -34,13 +34,16 @@ COPY backend/ /app/backend/
 # Copy Next.js standalone build (includes server + static + public)
 COPY --from=frontend-build /build/.next/standalone /app
 COPY --from=frontend-build /build/.next/static /app/.next/static
+COPY --from=frontend-build /build/public /app/public
 
 # Copy config files
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY nginx.conf /etc/nginx/nginx.conf.template
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
 WORKDIR /app
 
 EXPOSE 80
 
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/start.sh"]
