@@ -129,13 +129,14 @@ export default function SuggestionsPage() {
               <Select
                 value={selectedExercise}
                 onValueChange={(value) => value && setSelectedExercise(value)}
+                items={exerciseSuggestions?.map((suggestion) => ({ value: suggestion.exercise.id, label: suggestion.exercise.name }))}
               >
                 <SelectTrigger className="w-full h-10">
                   <SelectValue placeholder="Select an exercise" />
                 </SelectTrigger>
                 <SelectContent>
                   {exerciseSuggestions?.map((suggestion, i) => (
-                    <SelectItem key={`${suggestion.exercise.id}-${i}`} value={suggestion.exercise.id}>
+                    <SelectItem key={`${suggestion.exercise.id}-${i}`} value={suggestion.exercise.id} label={suggestion.exercise.name}>
                       {suggestion.exercise.name}
                     </SelectItem>
                   ))}

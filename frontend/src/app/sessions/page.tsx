@@ -151,13 +151,14 @@ export default function SessionsPage() {
                 onValueChange={(value) =>
                   value && setNewSession({ ...newSession, meso_cycle_id: value })
                 }
+                items={cycles?.map((cycle) => ({ value: cycle.id, label: cycle.name }))}
               >
                 <SelectTrigger className="w-full h-10">
                   <SelectValue placeholder="Select a meso cycle" />
                 </SelectTrigger>
                 <SelectContent>
                   {cycles?.map((cycle) => (
-                    <SelectItem key={cycle.id} value={cycle.id}>
+                    <SelectItem key={cycle.id} value={cycle.id} label={cycle.name}>
                       {cycle.name}
                     </SelectItem>
                   ))}
