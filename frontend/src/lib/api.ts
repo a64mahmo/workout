@@ -10,9 +10,9 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const userId = localStorage.getItem('userId');
+  const userId = localStorage.getItem('userId') || '00000000-0000-0000-0000-000000000000';
   if (userId) {
-    config.headers['X-User-ID'] = userId;
+    config.params = { ...config.params, user_id: userId };
   }
   return config;
 });

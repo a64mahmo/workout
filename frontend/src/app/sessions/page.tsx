@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ import {
 import { api } from '@/lib/api';
 import type { TrainingSession, MesoCycle } from '@/types';
 import { format } from 'date-fns';
-import { Plus, Dumbbell, Flame, ChevronRight } from 'lucide-react';
+import { Plus, Dumbbell, Flame, ChevronRight, Form } from 'lucide-react';
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -74,6 +74,12 @@ export default function SessionsPage() {
     },
   });
 
+  useEffect(() => {
+    if (cycles?.length === 1 && newSession.meso_cycle_id !== cycles[0].id) {
+      setNewSession((prev) => ({ ...prev, meso_cycle_id: cycles[0].id }));
+    }
+  }, [cycles, newSession.meso_cycle_id]);
+
   const createMutation = useMutation({
     mutationFn: async (data: typeof newSession) => {
       const res = await api.post(`/api/sessions?user_id=${userId}`, data);
@@ -84,7 +90,7 @@ export default function SessionsPage() {
       setIsDialogOpen(false);
       setNewSession({
         name: '',
-        meso_cycle_id: '',
+        meso_cycle_id: cycles?.length === 1 ? cycles[0].id : '',
         scheduled_date: format(new Date(), 'yyyy-MM-dd'),
         notes: '',
       });
@@ -134,7 +140,7 @@ export default function SessionsPage() {
             </DialogHeader>
             <div className="space-y-3 mt-2">
               <Input
-                placeholder="Session name (e.g. Upper Body Push)"
+                placeholder="Session name"
                 value={newSession.name}
                 onChange={(e) =>
                   setNewSession({ ...newSession, name: e.target.value })

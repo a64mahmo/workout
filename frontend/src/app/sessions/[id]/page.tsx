@@ -6,13 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import type {
   TrainingSession,
@@ -379,9 +373,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
+  const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
 
   // Per-set edit state
-  const [setEdits, setSetEdits] = useState<Record<string, { reps: string; weight: string; rpe: string }>>({});
+  const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
 
   // Per-exercise rest config: { enabled, duration }
   // Keyed by session_exercise id
@@ -495,11 +490,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     [session],
   );
 
-  const getEdit = (s: ExerciseSet) =>
-    setEdits[s.id] ?? { reps: s.reps > 0 ? String(s.reps) : '', weight: s.weight > 0 ? String(s.weight) : '', rpe: s.rpe != null ? String(s.rpe) : '' };
+  const getEdit = (s: ExerciseSet) => {
+    const edit = setEdits[s.id] ?? {};
+    return {
+      reps: edit.reps ?? (s.reps > 0 ? String(s.reps) : ''),
+      weight: edit.weight ?? (s.weight > 0 ? String(s.weight) : ''),
+      rpe: edit.rpe ?? (s.rpe != null ? String(s.rpe) : ''),
+    };
+  };
 
   const updateEdit = (setId: string, field: 'reps' | 'weight' | 'rpe', val: string) =>
-    setSetEdits(prev => ({ ...prev, [setId]: { ...(prev[setId] ?? { reps: '', weight: '', rpe: '' }), [field]: val } }));
+    setSetEdits(prev => ({ ...prev, [setId]: { ...(prev[setId] ?? {}), [field]: val } }));
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -686,13 +687,41 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           )}
           <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
           {session.status !== 'completed' && completedSets > 0 && (
-            <Button size="sm" onClick={() => completeMutation.mutate()}
+            <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
               disabled={completeMutation.isPending} className="shrink-0">
               {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
             </Button>
           )}
         </div>
       </div>
+
+      <Dialog open={isFinishDialogOpen} onOpenChange={setIsFinishDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm finish workout</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm"><strong>Exercises:</strong> {session.exercises.length}</p>
+            <p className="text-sm"><strong>Sets completed:</strong> {completedSets}/{session.exercises.reduce((sum, se) => sum + se.sets.length, 0)}</p>
+            <p className="text-sm"><strong>Total volume:</strong> {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs</p>
+            <p className="text-sm text-muted-foreground">This will mark your workout finished and save the current progress.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsFinishDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                completeMutation.mutate();
+                setIsFinishDialogOpen(false);
+              }}
+              disabled={completeMutation.isPending}
+            >
+              {completeMutation.isPending ? 'Saving…' : 'Confirm'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Exercise list ───────────────────────────────────────────────────── */}
       {session.exercises.length === 0 ? (
