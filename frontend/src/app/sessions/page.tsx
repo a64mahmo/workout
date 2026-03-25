@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { api } from '@/lib/api';
+import { formatStatus } from '@/lib/utils';
 import type { TrainingSession, MesoCycle } from '@/types';
 import { format } from 'date-fns';
 import { Plus, Dumbbell, Flame, ChevronRight, Form } from 'lucide-react';
@@ -107,8 +108,8 @@ export default function SessionsPage() {
     },
   });
 
-  const upcoming = sessions?.filter((s) => s.status === 'scheduled') ?? [];
-  const completed = sessions?.filter((s) => s.status !== 'scheduled') ?? [];
+  const upcoming = sessions?.filter((s) => s.status === 'scheduled' || s.status === 'in_progress') ?? [];
+  const completed = sessions?.filter((s) => s.status === 'completed' || s.status === 'cancelled') ?? [];
 
   const canCreate =
     !!newSession.name &&
@@ -320,7 +321,7 @@ function SessionRow({
           <Badge
             variant={session.status === 'completed' ? 'default' : 'secondary'}
           >
-            {session.status}
+            {formatStatus(session.status)}
           </Badge>
           <ChevronRight className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
         </div>

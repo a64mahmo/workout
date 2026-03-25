@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete as sa_delete
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime
 import uuid
 
 from app.database import get_db
-from app.models.models import TrainingSession, SessionExercise, ExerciseSet, Exercise, VolumeHistory, MicroCycle, MesoCycle
+from app.models.models import TrainingSession, SessionExercise, ExerciseSet, Exercise, VolumeHistory, HealthMetric, MicroCycle, MesoCycle
 from app.schemas import SessionCreate, SessionUpdate, SessionResponse
 from app.schemas import SessionExerciseCreate, SessionExerciseUpdate, SessionExerciseResponse
 from app.schemas import ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse
@@ -101,6 +101,17 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     db_session = result.scalar_one_or_none()
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Load session exercises to delete their sets first
+    result = await db.execute(
+        select(SessionExercise).where(SessionExercise.session_id == session_id)
+    )
+    for se in result.scalars().all():
+        await db.execute(sa_delete(ExerciseSet).where(ExerciseSet.session_exercise_id == se.id))
+
+    await db.execute(sa_delete(SessionExercise).where(SessionExercise.session_id == session_id))
+    await db.execute(sa_delete(VolumeHistory).where(VolumeHistory.session_id == session_id))
+    await db.execute(sa_delete(HealthMetric).where(HealthMetric.session_id == session_id))
     await db.delete(db_session)
     await db.commit()
     return {"message": "Session deleted"}
@@ -113,7 +124,7 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     
     db_session.start_time = datetime.utcnow()
-    db_session.status = "In Progress"
+    db_session.status = "in_progress"
     if not db_session.actual_date:
         db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
     await db.commit()
@@ -130,7 +141,7 @@ async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.status = "Completed"
+    db_session.status = "completed"
     db_session.end_time = datetime.utcnow()
     if not db_session.actual_date:
         db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
@@ -166,7 +177,7 @@ async def cancel_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.status = "Cancelled"
+    db_session.status = "cancelled"
     await db.commit()
     return {"message": "Session cancelled"}
 

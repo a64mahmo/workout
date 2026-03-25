@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { api } from '@/lib/api';
+import { formatStatus } from '@/lib/utils';
 import type { MesoCycle, TrainingSession } from '@/types';
 import { useState, useMemo } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
@@ -330,7 +331,7 @@ export default function Dashboard() {
                         session.status === 'completed' ? 'default' : 'secondary'
                       }
                     >
-                      {session.status}
+                      {formatStatus(session.status)}
                     </Badge>
                     <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
                   </div>

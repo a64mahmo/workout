@@ -38,7 +38,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, formatStatus } from '@/lib/utils';
 
 const USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -617,20 +617,27 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const completeMutation = useMutation({
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/complete`); return res.data; },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+    },
   });
 
   const cancelMutation = useMutation({
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/cancel`); return res.data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
       router.push('/sessions');
     },
   });
 
   const startMutation = useMutation({
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/start`); return res.data; },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+    },
   });
 
   const syncFitbitMutation = useMutation({
@@ -733,7 +740,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 </span>
               </div>
             )}
-            <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
+            <Badge variant={statusVariant} className="shrink-0">{formatStatus(session.status)}</Badge>
             {session.status === 'scheduled' && (
               <Button
                 variant="outline"

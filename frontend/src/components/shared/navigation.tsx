@@ -103,7 +103,7 @@ export function Navigation() {
                         : 'text-muted-foreground'
                     )}
                   />
-                  {item.label}
+                  <span className="hidden lg:inline">{item.label}</span>
                 </button>
               </Link>
             );
