@@ -1,0 +1,9 @@
+frontend/
+__pycache__
+*.pyc
+backend/venv
+*.db
+*.log
+.pytest_cache
+.git
+.gitignore
