@@ -6,5 +6,7 @@ from .schemas import (
     SessionCreate, SessionUpdate, SessionResponse,
     SessionExerciseCreate, SessionExerciseUpdate, SessionExerciseResponse,
     ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse,
+    HealthMetricBase, HealthMetricResponse,
+    FitbitAuthUrl, FitbitCallback,
     TokenResponse
 )

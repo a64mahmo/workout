@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from .api import (
     auth_router, exercises_router, meso_cycles_router,
-    sessions_router, suggestions_router, plans_router
+    sessions_router, suggestions_router, plans_router,
+    fitbit_router
 )
 from .database import init_db
 
@@ -37,6 +38,7 @@ app.include_router(meso_cycles_router)
 app.include_router(sessions_router)
 app.include_router(suggestions_router)
 app.include_router(plans_router)
+app.include_router(fitbit_router)
 
 
 

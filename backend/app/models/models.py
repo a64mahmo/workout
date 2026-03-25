@@ -13,10 +13,17 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Fitbit OAuth fields
+    fitbit_access_token = Column(String, nullable=True)
+    fitbit_refresh_token = Column(String, nullable=True)
+    fitbit_user_id = Column(String, nullable=True)
+    fitbit_token_expires_at = Column(DateTime, nullable=True)
+
     meso_cycles = relationship("MesoCycle", back_populates="user")
     sessions = relationship("TrainingSession", back_populates="user")
     volume_history = relationship("VolumeHistory", back_populates="user")
     plans = relationship("Plan", back_populates="user")
+    health_metrics = relationship("HealthMetric", back_populates="user", cascade="all, delete-orphan")
 
 class Exercise(Base):
     __tablename__ = "exercises"
@@ -73,10 +80,17 @@ class TrainingSession(Base):
     notes = Column(Text)
     total_volume = Column(Float, default=0)
 
+    # Fitbit session fields
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+    average_hr = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+
     user = relationship("User", back_populates="sessions")
     meso_cycle = relationship("MesoCycle", back_populates="sessions")
     micro_cycle = relationship("MicroCycle", back_populates="sessions")
-    session_exercises = relationship("SessionExercise", back_populates="session", cascade="all, delete-orphan")
+    session_exercises = relationship("SessionExercise", back_populates="session", cascade="all, delete-orphan", passive_deletes=True)
+    health_metric = relationship("HealthMetric", back_populates="session", uselist=False, passive_deletes=True)
 
 class SessionExercise(Base):
     __tablename__ = "session_exercises"
@@ -104,6 +118,28 @@ class ExerciseSet(Base):
     is_completed = Column(Boolean, default=False)
 
     session_exercise = relationship("SessionExercise", back_populates="sets")
+
+class HealthMetric(Base):
+    __tablename__ = "health_metrics"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    session_id = Column(String, ForeignKey("training_sessions.id"), nullable=True)
+    date = Column(String, nullable=False)  # yyyy-MM-dd
+
+    # Sleep metrics
+    sleep_duration_seconds = Column(Integer, nullable=True)
+    sleep_score = Column(Integer, nullable=True)
+    sleep_efficiency = Column(Integer, nullable=True)
+
+    # Body metrics
+    weight_kg = Column(Float, nullable=True)
+    body_fat_pct = Column(Float, nullable=True)
+    bmi = Column(Float, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="health_metrics")
+    session = relationship("TrainingSession", back_populates="health_metric")
 
 class VolumeHistory(Base):
     __tablename__ = "volume_history"

@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'WorkoutTracker',
   webDir: 'out',
   server: {
-    url: 'http://192.168.0.50:3000',
+    url: 'http://192.168.0.200:3000',
     cleartext: true,
   },
   ios: {

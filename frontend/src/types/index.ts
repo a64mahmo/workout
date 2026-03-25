@@ -3,6 +3,7 @@ export interface User {
   email: string;
   name: string;
   created_at: string;
+  has_fitbit_connected?: boolean;
 }
 
 export interface Exercise {
@@ -58,6 +59,20 @@ export interface SessionExercise {
   sets: ExerciseSet[];
 }
 
+export interface HealthMetric {
+  id: string;
+  user_id: string;
+  session_id?: string;
+  date: string;
+  sleep_duration_seconds?: number;
+  sleep_score?: number;
+  sleep_efficiency?: number;
+  weight_kg?: number;
+  body_fat_pct?: number;
+  bmi?: number;
+  created_at: string;
+}
+
 export interface TrainingSession {
   id: string;
   user_id: string;
@@ -66,12 +81,17 @@ export interface TrainingSession {
   name: string;
   scheduled_date: string;
   actual_date?: string;
-  status: 'scheduled' | 'completed' | 'cancelled';
+  start_time?: string;
+  end_time?: string;
+  average_hr?: number;
+  max_hr?: number;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
   notes?: string;
   total_volume?: number;
   created_at: string;
   updated_at: string;
   exercises: SessionExercise[];
+  health_metric?: HealthMetric;
 }
 
 export interface VolumeHistory {

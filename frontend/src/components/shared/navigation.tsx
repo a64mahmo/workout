@@ -14,6 +14,7 @@ import {
   ClipboardList,
   Menu,
   X,
+  Settings,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/plans', label: 'Plans', icon: ClipboardList },
   { href: '/sessions', label: 'Sessions', icon: Calendar },
   { href: '/suggestions', label: 'Suggestions', icon: Zap },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 function ThemeToggle() {
@@ -101,7 +103,7 @@ export function Navigation() {
                         : 'text-muted-foreground'
                     )}
                   />
-                  {item.label}
+                  <span className="hidden lg:inline">{item.label}</span>
                 </button>
               </Link>
             );

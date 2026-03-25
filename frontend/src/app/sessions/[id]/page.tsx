@@ -29,9 +29,16 @@ import {
   CheckCircle2,
   Circle,
   Timer,
+  Play,
+  Activity,
+  Heart,
+  Moon,
+  Weight,
+  Loader2,
+  Pencil,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, formatStatus } from '@/lib/utils';
 
 const USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -252,6 +259,7 @@ function SetRow({
   onDelete,
   isCompleting,
   isUnchecking,
+  isEditable,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -262,31 +270,41 @@ function SetRow({
   onDelete: () => void;
   isCompleting: boolean;
   isUnchecking: boolean;
+  isEditable: boolean;
 }) {
-  if (set.is_completed) {
+  // Completed sets or non-editable → read-only view
+  if (set.is_completed || !isEditable) {
     return (
       <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border/20 first:border-t-0 group">
-        {/* Tap checkmark to uncheck */}
-        <button
-          onClick={onUncheck}
-          disabled={isUnchecking}
-          className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors"
-          title="Tap to edit"
-        >
-          {isUnchecking
-            ? <Circle className="size-5 animate-pulse" />
-            : <CheckCircle2 className="size-5" />}
-        </button>
+        {/* Tap checkmark to uncheck (only when editable) */}
+        {isEditable ? (
+          <button
+            onClick={onUncheck}
+            disabled={isUnchecking}
+            className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors"
+            title="Tap to edit"
+          >
+            {isUnchecking
+              ? <Circle className="size-5 animate-pulse" />
+              : set.is_completed ? <CheckCircle2 className="size-5" /> : <Circle className="size-5 text-muted-foreground/30" />}
+          </button>
+        ) : (
+          set.is_completed
+            ? <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
+            : <Circle className="size-5 text-muted-foreground/30 shrink-0" />
+        )}
         <span className="w-5 text-xs text-muted-foreground tabular-nums text-center shrink-0">
           {set.set_number}
         </span>
-        <span className="flex-1 text-sm text-muted-foreground/70 tabular-nums line-through">
+        <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
           {set.reps} × {set.weight} lbs{set.rpe ? ` @ ${set.rpe}` : ''}
         </span>
-        <button onClick={onDelete}
-          className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
-          <X className="size-3.5" />
-        </button>
+        {isEditable && (
+          <button onClick={onDelete}
+            className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
+            <X className="size-3.5" />
+          </button>
+        )}
       </div>
     );
   }
@@ -374,6 +392,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Per-set edit state
   const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
@@ -437,6 +456,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const userId = session?.user_id ?? USER_ID;
 
   const initializedSessionIdRef = useRef<string | null>(null);
+
+  // Auto-enable editing for non-completed sessions
+  const isCompleted = session?.status === 'completed' || session?.status === 'cancelled';
+  useEffect(() => {
+    if (session && session.status !== 'completed' && session.status !== 'cancelled') {
+      setIsEditing(true);
+    }
+  }, [session]);
 
   // Initialise edit + rest state for newly-loaded exercises/sets
   useEffect(() => {
@@ -590,15 +617,32 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const completeMutation = useMutation({
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/complete`); return res.data; },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+    },
   });
 
   const cancelMutation = useMutation({
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/cancel`); return res.data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
       router.push('/sessions');
     },
+  });
+
+  const startMutation = useMutation({
+    mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/start`); return res.data; },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+    },
+  });
+
+  const syncFitbitMutation = useMutation({
+    mutationFn: async () => { const res = await api.post(`/api/fitbit/sync-session/${id}`); return res.data; },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
   });
 
   // Apply plan
@@ -696,7 +740,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 </span>
               </div>
             )}
-            <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
+            <Badge variant={statusVariant} className="shrink-0">{formatStatus(session.status)}</Badge>
             {session.status === 'scheduled' && (
               <Button
                 variant="outline"
@@ -708,10 +752,37 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
               </Button>
             )}
-            {session.status !== 'completed' && completedSets > 0 && (
+            {session.status === 'scheduled' && session.exercises.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => startMutation.mutate()}
+                disabled={startMutation.isPending}
+                className="shrink-0 gap-1.5"
+              >
+                {startMutation.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Play className="size-3.5" />
+                )}
+                Start
+              </Button>
+            )}
+            {session.status !== 'completed' && session.status !== 'cancelled' && completedSets > 0 && (
               <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
                 disabled={completeMutation.isPending} className="shrink-0">
                 {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
+              </Button>
+            )}
+            {isCompleted && (
+              <Button
+                variant={isEditing ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setIsEditing(!isEditing)}
+                className="shrink-0 gap-1.5"
+              >
+                <Pencil className="size-3.5" />
+                {isEditing ? 'Lock' : 'Edit'}
               </Button>
             )}
           </div>
@@ -804,12 +875,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       </span>
                     )}
                     {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+                    {isEditing && (
                     <button
                       onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
                       className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                     >
                       <X className="size-3.5" />
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -857,6 +930,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         set={s}
                         isActive={s.id === firstPendingId}
                         editVal={edit}
+                        isEditable={isEditing}
                         onEdit={(field, val) => updateEdit(s.id, field, val)}
                         onComplete={() => {
                           const reps = parseInt(edit.reps);
@@ -912,6 +986,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* ── Add Exercise ───────────────────────────────────────────────────── */}
+      {isEditing && (
       <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
         <DialogTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
         <DialogContent className="sm:max-w-sm">
@@ -933,8 +1008,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+      )}
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
+      {isEditing && (
       <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); } }}>
         <DialogTrigger render={
           <Button variant="ghost" className="w-full gap-2 text-muted-foreground">
@@ -1023,6 +1100,110 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+      )}
+
+      {/* ── Fitbit Integration ────────────────────────────────────────────── */}
+      {(session.status === 'completed' || session.status === 'cancelled') && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-green-600 dark:text-green-400" />
+              <span className="font-semibold text-sm">Fitbit Data</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncFitbitMutation.mutate()}
+              disabled={syncFitbitMutation.isPending}
+              className="gap-1.5"
+            >
+              {syncFitbitMutation.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Activity className="size-3.5" />
+              )}
+              Sync Fitbit
+            </Button>
+          </div>
+
+          <div className="px-4 py-3 space-y-3">
+            {/* Heart Rate */}
+            {(session.average_hr || session.max_hr) ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Heart className="size-4 text-red-500" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Heart Rate</p>
+                    <div className="flex items-baseline gap-2">
+                      {session.average_hr && (
+                        <span className="text-sm font-semibold tabular-nums">{session.average_hr} <span className="text-xs font-normal text-muted-foreground">avg</span></span>
+                      )}
+                      {session.max_hr && (
+                        <span className="text-sm font-semibold tabular-nums">{session.max_hr} <span className="text-xs font-normal text-muted-foreground">max</span></span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Heart className="size-4" />
+                <span>No heart rate data synced yet</span>
+              </div>
+            )}
+
+            {/* Health Metrics */}
+            {session.health_metric ? (
+              <div className="grid grid-cols-2 gap-3">
+                {session.health_metric.sleep_duration_seconds != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Moon className="size-4 text-indigo-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sleep</p>
+                      <p className="text-sm font-semibold tabular-nums">
+                        {Math.floor(session.health_metric.sleep_duration_seconds / 3600)}h{' '}
+                        {Math.round((session.health_metric.sleep_duration_seconds % 3600) / 60)}m
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.sleep_efficiency != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Moon className="size-4 text-indigo-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sleep Efficiency</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.sleep_efficiency}%</p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.weight_kg != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Weight className="size-4 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Weight</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.weight_kg} kg</p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.body_fat_pct != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Weight className="size-4 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Body Fat</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.body_fat_pct}%</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Moon className="size-4" />
+                <span>No health metrics synced yet. Tap Sync Fitbit to pull sleep and weight data.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Rest timer (floating) ─────────────────────────────────────────── */}
       {rest.active && (

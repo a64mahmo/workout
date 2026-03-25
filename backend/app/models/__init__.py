@@ -1,1 +1,1 @@
-from .models import User, Exercise, MesoCycle, MicroCycle, TrainingSession, SessionExercise, ExerciseSet, VolumeHistory
+from .models import User, Exercise, MesoCycle, MicroCycle, TrainingSession, SessionExercise, ExerciseSet, HealthMetric, VolumeHistory

@@ -26,15 +26,17 @@ The project follows a modern decoupled architecture:
               │  Frontend   │
               └──────┬──────┘
                      │
-              ┌──────▼──────┐
-              │   FastAPI   │
-              │   Backend   │
-              └──────┬──────┘
-                     │
-              ┌──────▼──────┐
-              │   SQLite /  │
-              │ PostgreSQL  │
-              └─────────────┘
+         ┌───────────┼───────────┐
+         │           │           │
+  ┌──────▼──────┐   │   ┌───────▼───────┐
+  │   FastAPI   │   │   │  Fitbit Web   │
+  │   Backend   │◄──┘   │     API       │
+  └──────┬──────┘  OAuth2  └─────────────┘
+         │        callback
+  ┌──────▼──────┐
+  │   SQLite /  │
+  │ PostgreSQL  │
+  └─────────────┘
 ```
 
 ---
@@ -61,6 +63,15 @@ The project follows a modern decoupled architecture:
 ### Mobile Support
 - **Native iOS:** Capacitor integration for iOS deployment.
 - **Responsive Web:** Mobile-first responsive design.
+
+### Fitbit Integration
+- **OAuth2 Connect:** One-click Fitbit account linking via Settings page.
+- **Today's Dashboard:** Live daily stats — steps, resting heart rate, weight, sleep duration + efficiency.
+- **Heart Rate Sync:** Pull daily heart rate summary (resting HR + zone data) per session.
+- **Sleep Tracking:** Sync sleep duration and efficiency metrics.
+- **Weight/Body Metrics:** Import weight and body fat % from Fitbit body logs.
+- **Session Timing:** Automatic `start_time` and `end_time` capture when starting/finishing a workout.
+- **Token Management:** Automatic OAuth token refresh when expired.
 
 ---
 
@@ -107,7 +118,11 @@ users
 ├── email (VARCHAR, UNIQUE)
 ├── name (VARCHAR)
 ├── hashed_password (VARCHAR)
-└── created_at (TIMESTAMP)
+├── created_at (TIMESTAMP)
+├── fitbit_access_token (VARCHAR, nullable)    ← Fitbit OAuth
+├── fitbit_refresh_token (VARCHAR, nullable)   ← Fitbit OAuth
+├── fitbit_user_id (VARCHAR, nullable)         ← Fitbit OAuth
+└── fitbit_token_expires_at (TIMESTAMP, nullable) ← Fitbit OAuth
 
 exercises
 ├── id (UUID, PK)
@@ -142,9 +157,13 @@ training_sessions
 ├── name (VARCHAR)
 ├── scheduled_date (DATE)
 ├── actual_date (DATE, nullable)
-├── status (VARCHAR: scheduled/completed/cancelled)
+├── status (VARCHAR: scheduled/in_progress/completed/cancelled)
 ├── notes (TEXT, nullable)
-└── total_volume (FLOAT)
+├── total_volume (FLOAT)
+├── start_time (TIMESTAMP, nullable)          ← Fitbit: workout start
+├── end_time (TIMESTAMP, nullable)            ← Fitbit: workout end
+├── average_hr (INT, nullable)                ← Fitbit: avg heart rate
+└── max_hr (INT, nullable)                    ← Fitbit: peak heart rate
 
 session_exercises
 ├── id (UUID, PK)
@@ -162,6 +181,19 @@ exercise_sets
 ├── rpe (FLOAT, 1-10, nullable)
 ├── is_warmup (BOOLEAN)
 ├── is_completed (BOOLEAN)
+└── created_at (TIMESTAMP)
+
+health_metrics                                    ← NEW: Fitbit health data
+├── id (UUID, PK)
+├── user_id (FK → users)
+├── session_id (FK → training_sessions, nullable)
+├── date (VARCHAR: yyyy-MM-dd)
+├── sleep_duration_seconds (INT, nullable)      ← Fitbit: sleep duration
+├── sleep_score (INT, nullable)                 ← Fitbit: sleep score
+├── sleep_efficiency (INT, nullable)            ← Fitbit: sleep efficiency
+├── weight_kg (FLOAT, nullable)                 ← Fitbit: body weight
+├── body_fat_pct (FLOAT, nullable)              ← Fitbit: body fat %
+├── bmi (FLOAT, nullable)                       ← Fitbit: BMI
 └── created_at (TIMESTAMP)
 
 volume_history
@@ -242,7 +274,9 @@ plan_exercises
 | POST | `/api/sessions` | Create session |
 | PUT | `/api/sessions/{id}` | Update session |
 | DELETE | `/api/sessions/{id}` | Delete session |
-| POST | `/api/sessions/{id}/complete` | Complete session (calculates volume) |
+| POST | `/api/sessions/{id}/start` | Start session (sets start_time, status → in_progress) |
+| POST | `/api/sessions/{id}/cancel` | Cancel session |
+| POST | `/api/sessions/{id}/complete` | Complete session (calculates volume, sets end_time) |
 | POST | `/api/sessions/{id}/exercises` | Add exercise to session |
 | PUT | `/api/sessions/session-exercises/{id}` | Update session exercise |
 | DELETE | `/api/sessions/session-exercises/{id}` | Remove exercise from session |
@@ -275,6 +309,16 @@ plan_exercises
 | GET | `/api/suggestions/weight` | Get weight suggestions by RPE |
 | GET | `/api/suggestions/muscle-groups` | Get volume by muscle group |
 
+### Fitbit (`/api/fitbit`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/fitbit/auth-url` | Get Fitbit OAuth2 authorization URL |
+| POST | `/api/fitbit/callback` | Exchange OAuth code for tokens |
+| GET | `/api/fitbit/status` | Check if Fitbit is connected |
+| GET | `/api/fitbit/today-stats` | Get today's steps, HR, weight, sleep |
+| POST | `/api/fitbit/disconnect` | Disconnect Fitbit (clear tokens) |
+| POST | `/api/fitbit/sync-session/{session_id}` | Sync HR, sleep, weight for a session |
+
 ### Health Check
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -299,6 +343,108 @@ Analyzes last 50 completed sets for an exercise:
 
 ---
 
+## Fitbit Integration
+
+### Overview
+The Fitbit integration pulls health data from a user's Fitbit device and links it to their training sessions. It syncs three data types:
+- **Heart Rate:** Intraday heart rate data for the exact duration of a workout session.
+- **Sleep:** Previous night's sleep duration and efficiency.
+- **Weight/Body:** Body weight, body fat %, and BMI from Fitbit body logs.
+
+### OAuth2 Flow
+```
+1. User clicks "Connect Fitbit" on /settings page
+2. Frontend calls GET /api/fitbit/auth-url → returns Fitbit authorization URL
+3. Browser redirects to Fitbit's OAuth2 consent screen
+4. User authorizes → Fitbit redirects to /settings/fitbit/callback?code=...&state=...
+5. Frontend callback page calls POST /api/fitbit/callback with { code, state }
+6. Backend exchanges code for access_token + refresh_token via Fitbit token endpoint
+7. Tokens stored on User model (fitbit_access_token, fitbit_refresh_token, fitbit_token_expires_at)
+8. Frontend redirects to /settings showing "Connected" status
+```
+
+### Session Data Sync Flow
+```
+1. User completes a workout (POST /api/sessions/{id}/complete)
+   → Sets end_time = now, status = "completed"
+
+2. User clicks "Sync Fitbit" on completed session page
+3. Frontend calls POST /api/fitbit/sync-session/{session_id}
+4. Backend:
+   a. Checks token expiry → auto-refreshes if needed
+   b. Calls Fitbit daily HR API for session date (resting HR + zones)
+   c. Calls Fitbit sleep API for the session date
+   d. Calls Fitbit body/weight API for the session date
+   e. Creates/updates HealthMetric record linked to session
+   f. Returns updated session with HR + health_metric data
+5. Frontend displays HR summary, sleep, and weight data
+```
+
+### Today Stats Flow
+```
+1. Dashboard loads → calls GET /api/fitbit/today-stats
+2. Backend fetches in parallel from Fitbit:
+   - Steps: /1/user/-/activities/steps/date/today/1d.json
+   - Heart rate: /1/user/-/activities/heart/date/today/1d.json
+   - Weight: /1/user/-/body/log/weight/date/today.json
+   - Sleep: /1.2/user/-/sleep/date/today.json
+3. Returns combined stats object
+4. Dashboard renders 4 stat cards, auto-refreshes every 5 min
+```
+
+### Token Refresh
+Tokens are automatically refreshed when within 5 minutes of expiry:
+- `fitbit_service._refresh_token()` checks `fitbit_token_expires_at`
+- Calls `POST https://api.fitbit.com/oauth2/token` with `grant_type=refresh_token`
+- Updates stored tokens on the User model
+
+### Required Environment Variables
+```bash
+# Backend (.env or export)
+FITBIT_CLIENT_ID=your_fitbit_app_client_id
+FITBIT_CLIENT_SECRET=your_fitbit_app_client_secret
+FITBIT_REDIRECT_URI=http://localhost:3000/settings/fitbit/callback
+```
+
+### Fitbit App Setup
+1. Go to [dev.fitbit.com](https://dev.fitbit.com) and register an application
+2. Set **Callback URL** to `http://localhost:3000/settings/fitbit/callback`
+3. Set **Application Type** to "Personal" (or "Server" for production)
+4. Copy the **Client ID** and **Client Secret** to your environment variables
+5. Required OAuth2 scopes: `activity heartrate profile sleep weight`
+
+### API Request Details
+
+**Heart Rate (Daily Summary)**
+```
+GET /1/user/-/activities/heart/date/{date}/1d.json
+Authorization: Bearer {access_token}
+```
+Returns resting heart rate and heart rate zone data for the date.
+
+**Steps**
+```
+GET /1/user/-/activities/steps/date/{date}/1d.json
+Authorization: Bearer {access_token}
+```
+Returns step count for the date.
+
+**Sleep**
+```
+GET /1.2/user/-/sleep/date/{date}.json
+Authorization: Bearer {access_token}
+```
+Returns sleep stages, duration, and efficiency for main sleep period.
+
+**Body Weight**
+```
+GET /1/user/-/body/log/weight/date/{date}.json
+Authorization: Bearer {access_token}
+```
+Returns logged weight entries for the date.
+
+---
+
 ## Project Structure
 
 ```
@@ -312,13 +458,16 @@ workout/
 │   │   │   ├── sessions.py      # Training session endpoints
 │   │   │   ├── plans.py         # Training plan endpoints
 │   │   │   ├── suggestions.py   # Suggestion engine endpoints
+│   │   │   ├── fitbit.py        # Fitbit OAuth + sync endpoints
 │   │   │   └── __init__.py       # Router exports
 │   │   ├── models/
-│   │   │   ├── models.py        # SQLAlchemy models
+│   │   │   ├── models.py        # SQLAlchemy models (all tables)
 │   │   │   └── __init__.py
 │   │   ├── schemas/
 │   │   │   ├── schemas.py       # Pydantic DTOs
 │   │   │   └── __init__.py
+│   │   ├── services/
+│   │   │   └── fitbit_service.py # Fitbit API client + token management
 │   │   ├── database.py          # Async DB session config
 │   │   ├── main.py              # FastAPI app entry point
 │   │   └── __init__.py
@@ -342,13 +491,18 @@ workout/
 │   │   │   ├── sessions/
 │   │   │   │   ├── page.tsx     # Session list
 │   │   │   │   └── [id]/
-│   │   │   │       └── page.tsx # Session detail/editor
+│   │   │   │       └── page.tsx # Session detail/editor + Fitbit sync
 │   │   │   ├── suggestions/
 │   │   │   │   └── page.tsx     # Suggestions view
-│   │   │   └── plans/
-│   │   │       ├── page.tsx     # Plans list
-│   │   │       └── [id]/
-│   │   │           └── page.tsx # Plan detail
+│   │   │   ├── plans/
+│   │   │   │   ├── page.tsx     # Plans list
+│   │   │   │   └── [id]/
+│   │   │   │       └── page.tsx # Plan detail
+│   │   │   └── settings/
+│   │   │       ├── page.tsx     # Settings + Connect Fitbit button
+│   │   │       └── fitbit/
+│   │   │           └── callback/
+│   │   │               └── page.tsx # Fitbit OAuth callback handler
 │   │   ├── components/
 │   │   │   ├── providers.tsx    # React Query providers
 │   │   │   ├── shared/
@@ -364,9 +518,11 @@ workout/
 │   │   │       ├── select.tsx
 │   │   │       ├── table.tsx
 │   │   │       └── tabs.tsx
-│   │   └── lib/
-│   │       ├── api.ts           # Axios API client
-│   │       └── utils.ts         # Utility functions
+│   │   ├── lib/
+│   │   │   ├── api.ts           # Axios API client
+│   │   │   └── utils.ts         # Utility functions
+│   │   └── types/
+│   │       └── index.ts         # TypeScript interfaces (incl. HealthMetric)
 │   ├── ios/                     # Capacitor iOS project
 │   ├── public/                  # Static assets
 │   ├── package.json
@@ -432,6 +588,31 @@ npm run dev
 ```
 
 Access the app at `http://localhost:3000`
+
+### Fitbit Setup (Optional)
+
+To enable Fitbit integration:
+
+1. **Create a Fitbit app** at [dev.fitbit.com](https://dev.fitbit.com):
+   - Application Type: "Personal" (development) or "Server" (production)
+   - Callback URL: `http://localhost:3000/settings/fitbit/callback`
+   - Required scopes: `activity heartrate profile sleep weight`
+
+2. **Set environment variables** before starting the backend:
+   ```bash
+   export FITBIT_CLIENT_ID=your_client_id_here
+   export FITBIT_CLIENT_SECRET=your_client_secret_here
+   export FITBIT_REDIRECT_URI=http://localhost:3000/settings/fitbit/callback
+   ```
+
+   Or create a `.env` file in the `backend/` directory:
+   ```
+   FITBIT_CLIENT_ID=your_client_id_here
+   FITBIT_CLIENT_SECRET=your_client_secret_here
+   FITBIT_REDIRECT_URI=http://localhost:3000/settings/fitbit/callback
+   ```
+
+3. **Start the servers** and navigate to `http://localhost:3000/settings` to connect your Fitbit account.
 
 ### Mobile (iOS) Development
 
@@ -539,14 +720,16 @@ Export methods: `app-store-connect`, `release-testing`, `enterprise`, `debugging
 
 | Route | Page | Description |
 |-------|------|-------------|
-| `/` | Dashboard | Overview, recent sessions, quick stats |
+| `/` | Dashboard | Overview, Fitbit today stats, recent sessions, quick stats |
 | `/exercises` | Exercises | Searchable exercise library with muscle group filter |
 | `/cycles` | Meso Cycles | List and manage training cycles |
 | `/sessions` | Sessions | Calendar and list view of sessions |
-| `/sessions/[id]` | Session Detail | Edit session, add exercises/sets |
+| `/sessions/[id]` | Session Detail | Edit session, add exercises/sets, start/finish workout, Sync Fitbit. Completed sessions load read-only with Edit/Lock toggle |
 | `/plans` | Plans | Training plan management |
 | `/plans/[id]` | Plan Detail | Plan session editor |
 | `/suggestions` | Suggestions | Volume and weight recommendations |
+| `/settings` | Settings | Connect/disconnect Fitbit account |
+| `/settings/fitbit/callback` | Fitbit Callback | OAuth2 authorization callback handler |
 
 ---
 
@@ -556,13 +739,14 @@ The API uses a simple header-based user identification:
 - Register/Login returns a `user_id`
 - Client stores `user_id` in localStorage
 - All subsequent requests include `X-User-ID` header
+- Fitbit tokens are stored directly on the `users` table (encrypted at rest in production)
 
 ```typescript
 // Frontend interceptor (src/lib/api.ts)
 api.interceptors.request.use((config) => {
   const userId = localStorage.getItem('userId');
   if (userId) {
-    config.headers['X-User-ID'] = userId;
+    config.params = { ...config.params, user_id: userId };
   }
   return config;
 });

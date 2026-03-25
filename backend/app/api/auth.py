@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from passlib.context import CryptContext
 from ..database import async_session
-from ..models import User
+from ..models.models import User
 from ..schemas import UserCreate, UserLogin, UserResponse, TokenResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -38,4 +38,10 @@ async def get_me(x_user_id: str = Header(...)):
         user = result.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return user
+        return UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            created_at=user.created_at,
+            has_fitbit_connected=bool(user.fitbit_access_token)
+        )
