@@ -593,6 +593,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/cancel`); return res.data; },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      router.push('/sessions');
+    },
+  });
+
   // Apply plan
   const { data: userPlans } = useQuery<WorkoutPlan[]>({
     queryKey: ['plans'],
@@ -686,6 +694,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             </div>
           )}
           <Badge variant={statusVariant} className="shrink-0">{session.status}</Badge>
+          {session.status === 'scheduled' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+              className="shrink-0"
+            >
+              {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
+            </Button>
+          )}
           {session.status !== 'completed' && completedSets > 0 && (
             <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
               disabled={completeMutation.isPending} className="shrink-0">

@@ -135,6 +135,17 @@ async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Session completed", "total_volume": total_volume}
 
+@router.post("/{session_id}/cancel")
+async def cancel_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TrainingSession).where(TrainingSession.id == session_id))
+    db_session = result.scalar_one_or_none()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db_session.status = "cancelled"
+    await db.commit()
+    return {"message": "Session cancelled"}
+
 @router.post("/{session_id}/exercises", response_model=SessionExerciseResponse)
 async def add_exercise_to_session(session_id: str, exercise: SessionExerciseCreate, db: AsyncSession = Depends(get_db)):
     new_se = SessionExercise(
