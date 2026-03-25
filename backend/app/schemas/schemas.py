@@ -16,6 +16,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     created_at: Optional[datetime] = None
+    has_fitbit_connected: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -98,12 +99,33 @@ class SessionCreate(BaseModel):
     status: str = "scheduled"
     notes: Optional[str] = None
 
+class HealthMetricBase(BaseModel):
+    date: str
+    sleep_duration_seconds: Optional[int] = None
+    sleep_score: Optional[int] = None
+    sleep_efficiency: Optional[int] = None
+    weight_kg: Optional[float] = None
+    body_fat_pct: Optional[float] = None
+    bmi: Optional[float] = None
+
+class HealthMetricResponse(HealthMetricBase):
+    id: str
+    user_id: str
+    session_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
 class SessionUpdate(BaseModel):
     name: Optional[str] = None
     scheduled_date: Optional[str] = None
     actual_date: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    average_hr: Optional[int] = None
+    max_hr: Optional[int] = None
 
 class ExerciseSetResponse(BaseModel):
     id: str
@@ -134,10 +156,15 @@ class SessionResponse(BaseModel):
     name: str
     scheduled_date: Optional[str] = None
     actual_date: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    average_hr: Optional[int] = None
+    max_hr: Optional[int] = None
     status: str = "scheduled"
     notes: Optional[str] = None
     total_volume: Optional[float] = 0.0
     exercises: List[SessionExerciseResponse] = Field(default=[], validation_alias="session_exercises")
+    health_metric: Optional[HealthMetricResponse] = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
@@ -163,3 +190,10 @@ class ExerciseSetUpdate(BaseModel):
     rpe: Optional[float] = None
     is_warmup: Optional[bool] = None
     is_completed: Optional[bool] = None
+
+class FitbitAuthUrl(BaseModel):
+    url: str
+
+class FitbitCallback(BaseModel):
+    code: str
+    state: str

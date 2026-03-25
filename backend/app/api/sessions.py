@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import List
+from datetime import datetime
 import uuid
 
 from app.database import get_db
@@ -19,7 +20,8 @@ async def list_sessions(user_id: str, db: AsyncSession = Depends(get_db)):
         select(TrainingSession)
         .options(
             selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
-            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise)
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+            selectinload(TrainingSession.health_metric)
         )
         .where(TrainingSession.user_id == user_id)
     )
@@ -32,7 +34,8 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
         select(TrainingSession)
         .options(
             selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
-            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise)
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+            selectinload(TrainingSession.health_metric)
         )
         .where(TrainingSession.id == session_id)
     )
@@ -50,7 +53,7 @@ async def create_session(session: SessionCreate, user_id: str, db: AsyncSession 
         meso_cycle_id=session.meso_cycle_id,
         micro_cycle_id=session.micro_cycle_id,
         scheduled_date=session.scheduled_date,
-        status=session.status or "scheduled",
+        status=session.status or "Scheduled",
         notes=session.notes
     )
     db.add(new_session)
@@ -61,7 +64,8 @@ async def create_session(session: SessionCreate, user_id: str, db: AsyncSession 
         select(TrainingSession)
         .options(
             selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
-            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise)
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+            selectinload(TrainingSession.health_metric)
         )
         .where(TrainingSession.id == new_session.id)
     )
@@ -84,7 +88,8 @@ async def update_session(session_id: str, session: SessionUpdate, db: AsyncSessi
         select(TrainingSession)
         .options(
             selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
-            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise)
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+            selectinload(TrainingSession.health_metric)
         )
         .where(TrainingSession.id == session_id)
     )
@@ -100,6 +105,20 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Session deleted"}
 
+@router.post("/{session_id}/start")
+async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TrainingSession).where(TrainingSession.id == session_id))
+    db_session = result.scalar_one_or_none()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    db_session.start_time = datetime.utcnow()
+    db_session.status = "In Progress"
+    if not db_session.actual_date:
+        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+    await db.commit()
+    return {"message": "Session started", "start_time": db_session.start_time.isoformat()}
+
 @router.post("/{session_id}/complete")
 async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -111,7 +130,12 @@ async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.status = "completed"
+    db_session.status = "Completed"
+    db_session.end_time = datetime.utcnow()
+    if not db_session.actual_date:
+        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+    if not db_session.start_time:
+        db_session.start_time = db_session.end_time
     
     total_volume = 0.0
     for se in db_session.session_exercises:
@@ -142,7 +166,7 @@ async def cancel_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.status = "cancelled"
+    db_session.status = "Cancelled"
     await db.commit()
     return {"message": "Session cancelled"}
 

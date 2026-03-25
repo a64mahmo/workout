@@ -29,6 +29,12 @@ import {
   CheckCircle2,
   Circle,
   Timer,
+  Play,
+  Activity,
+  Heart,
+  Moon,
+  Weight,
+  Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -601,6 +607,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     },
   });
 
+  const startMutation = useMutation({
+    mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/start`); return res.data; },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+  });
+
+  const syncFitbitMutation = useMutation({
+    mutationFn: async () => { const res = await api.post(`/api/fitbit/sync-session/${id}`); return res.data; },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+  });
+
   // Apply plan
   const { data: userPlans } = useQuery<WorkoutPlan[]>({
     queryKey: ['plans'],
@@ -708,7 +724,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
               </Button>
             )}
-            {session.status !== 'completed' && completedSets > 0 && (
+            {session.status === 'scheduled' && session.exercises.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => startMutation.mutate()}
+                disabled={startMutation.isPending}
+                className="shrink-0 gap-1.5"
+              >
+                {startMutation.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Play className="size-3.5" />
+                )}
+                Start
+              </Button>
+            )}
+            {session.status !== 'completed' && session.status !== 'cancelled' && completedSets > 0 && (
               <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
                 disabled={completeMutation.isPending} className="shrink-0">
                 {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
@@ -1023,6 +1055,109 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Fitbit Integration ────────────────────────────────────────────── */}
+      {(session.status === 'completed' || session.status === 'cancelled') && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-green-600 dark:text-green-400" />
+              <span className="font-semibold text-sm">Fitbit Data</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncFitbitMutation.mutate()}
+              disabled={syncFitbitMutation.isPending}
+              className="gap-1.5"
+            >
+              {syncFitbitMutation.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Activity className="size-3.5" />
+              )}
+              Sync Fitbit
+            </Button>
+          </div>
+
+          <div className="px-4 py-3 space-y-3">
+            {/* Heart Rate */}
+            {(session.average_hr || session.max_hr) ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Heart className="size-4 text-red-500" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Heart Rate</p>
+                    <div className="flex items-baseline gap-2">
+                      {session.average_hr && (
+                        <span className="text-sm font-semibold tabular-nums">{session.average_hr} <span className="text-xs font-normal text-muted-foreground">avg</span></span>
+                      )}
+                      {session.max_hr && (
+                        <span className="text-sm font-semibold tabular-nums">{session.max_hr} <span className="text-xs font-normal text-muted-foreground">max</span></span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Heart className="size-4" />
+                <span>No heart rate data synced yet</span>
+              </div>
+            )}
+
+            {/* Health Metrics */}
+            {session.health_metric ? (
+              <div className="grid grid-cols-2 gap-3">
+                {session.health_metric.sleep_duration_seconds != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Moon className="size-4 text-indigo-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sleep</p>
+                      <p className="text-sm font-semibold tabular-nums">
+                        {Math.floor(session.health_metric.sleep_duration_seconds / 3600)}h{' '}
+                        {Math.round((session.health_metric.sleep_duration_seconds % 3600) / 60)}m
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.sleep_efficiency != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Moon className="size-4 text-indigo-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sleep Efficiency</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.sleep_efficiency}%</p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.weight_kg != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Weight className="size-4 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Weight</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.weight_kg} kg</p>
+                    </div>
+                  </div>
+                )}
+                {session.health_metric.body_fat_pct != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+                    <Weight className="size-4 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Body Fat</p>
+                      <p className="text-sm font-semibold tabular-nums">{session.health_metric.body_fat_pct}%</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Moon className="size-4" />
+                <span>No health metrics synced yet. Tap Sync Fitbit to pull sleep and weight data.</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Rest timer (floating) ─────────────────────────────────────────── */}
       {rest.active && (
