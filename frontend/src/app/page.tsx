@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 import type { MesoCycle, TrainingSession } from '@/types';
 import { useState, useMemo } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
-import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target } from 'lucide-react';
+import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints } from 'lucide-react';
 
 const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -49,6 +49,25 @@ export default function Dashboard() {
       const res = await api.get(`/api/sessions?user_id=${userId}`);
       return res.data as TrainingSession[];
     },
+  });
+
+  const { data: fitbitStats } = useQuery({
+    queryKey: ['fitbit-today', userId],
+    queryFn: async () => {
+      const res = await api.get(`/api/fitbit/today-stats?user_id=${userId}`);
+      return res.data as {
+        connected: boolean;
+        steps: number | null;
+        resting_hr: number | null;
+        weight_kg: number | null;
+        body_fat_pct: number | null;
+        sleep_duration_seconds: number | null;
+        sleep_efficiency: number | null;
+        sleep_score: number | null;
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const activeCycle = cycles?.find((c) => c.is_active);
@@ -158,7 +177,86 @@ export default function Dashboard() {
 
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4">
-        <Card>
+
+      {/* Fitbit Today */}
+      {fitbitStats?.connected && (
+        <div className="col-span-2">
+          <div className="flex items-center gap-2 mb-3">
+            <Activity className="size-4 text-green-600 dark:text-green-400" />
+            <h2 className="font-semibold text-sm">Today&apos;s Fitbit</h2>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Steps */}
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Footprints className="size-3.5 text-blue-500" />
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Steps</span>
+                </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {fitbitStats.steps != null ? fitbitStats.steps.toLocaleString() : '—'}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Resting HR */}
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Heart className="size-3.5 text-red-500" />
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Resting HR</span>
+                </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {fitbitStats.resting_hr != null ? (
+                    <>{fitbitStats.resting_hr} <span className="text-sm font-normal text-muted-foreground">bpm</span></>
+                  ) : '—'}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Weight */}
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Weight className="size-3.5 text-amber-500" />
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Weight</span>
+                </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {fitbitStats.weight_kg != null ? (
+                    <>{fitbitStats.weight_kg} <span className="text-sm font-normal text-muted-foreground">kg</span></>
+                  ) : '—'}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Sleep */}
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Moon className="size-3.5 text-indigo-500" />
+                  <span className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">Sleep</span>
+                </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  {fitbitStats.sleep_duration_seconds != null ? (
+                    <>
+                      {Math.floor(fitbitStats.sleep_duration_seconds / 3600)}h{' '}
+                      {Math.round((fitbitStats.sleep_duration_seconds % 3600) / 60)}m
+                    </>
+                  ) : '—'}
+                </div>
+                {fitbitStats.sleep_efficiency != null && (
+                  <div className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+                    {fitbitStats.sleep_efficiency}% efficiency
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* This Week + Volume */}
+      <Card>
           <CardContent className="pt-4">
             <div className="flex items-center gap-2 mb-2">
               <Calendar className="size-4 text-muted-foreground" />

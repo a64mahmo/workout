@@ -66,9 +66,10 @@ The project follows a modern decoupled architecture:
 
 ### Fitbit Integration
 - **OAuth2 Connect:** One-click Fitbit account linking via Settings page.
-- **Heart Rate Sync:** Pull intraday heart rate data for the exact duration of a training session (avg/max HR).
-- **Sleep Tracking:** Sync previous night's sleep duration and efficiency metrics.
-- **Weight/Body Metrics:** Import weight, body fat %, and BMI from Fitbit body logs.
+- **Today's Dashboard:** Live daily stats — steps, resting heart rate, weight, sleep duration + efficiency.
+- **Heart Rate Sync:** Pull daily heart rate summary (resting HR + zone data) per session.
+- **Sleep Tracking:** Sync sleep duration and efficiency metrics.
+- **Weight/Body Metrics:** Import weight and body fat % from Fitbit body logs.
 - **Session Timing:** Automatic `start_time` and `end_time` capture when starting/finishing a workout.
 - **Token Management:** Automatic OAuth token refresh when expired.
 
@@ -314,6 +315,7 @@ plan_exercises
 | GET | `/api/fitbit/auth-url` | Get Fitbit OAuth2 authorization URL |
 | POST | `/api/fitbit/callback` | Exchange OAuth code for tokens |
 | GET | `/api/fitbit/status` | Check if Fitbit is connected |
+| GET | `/api/fitbit/today-stats` | Get today's steps, HR, weight, sleep |
 | POST | `/api/fitbit/disconnect` | Disconnect Fitbit (clear tokens) |
 | POST | `/api/fitbit/sync-session/{session_id}` | Sync HR, sleep, weight for a session |
 
@@ -370,13 +372,24 @@ The Fitbit integration pulls health data from a user's Fitbit device and links i
 3. Frontend calls POST /api/fitbit/sync-session/{session_id}
 4. Backend:
    a. Checks token expiry → auto-refreshes if needed
-   b. Calls Fitbit intraday HR API for start_time..end_time window
-   c. Calculates average_hr and max_hr from dataset
-   d. Calls Fitbit sleep API for the session date
-   e. Calls Fitbit body/weight API for the session date
-   f. Creates/updates HealthMetric record linked to session
-   g. Returns updated session with HR + health_metric data
-5. Frontend displays HR summary (avg/max) and recovery metrics (sleep, weight)
+   b. Calls Fitbit daily HR API for session date (resting HR + zones)
+   c. Calls Fitbit sleep API for the session date
+   d. Calls Fitbit body/weight API for the session date
+   e. Creates/updates HealthMetric record linked to session
+   f. Returns updated session with HR + health_metric data
+5. Frontend displays HR summary, sleep, and weight data
+```
+
+### Today Stats Flow
+```
+1. Dashboard loads → calls GET /api/fitbit/today-stats
+2. Backend fetches in parallel from Fitbit:
+   - Steps: /1/user/-/activities/steps/date/today/1d.json
+   - Heart rate: /1/user/-/activities/heart/date/today/1d.json
+   - Weight: /1/user/-/body/log/weight/date/today.json
+   - Sleep: /1.2/user/-/sleep/date/today.json
+3. Returns combined stats object
+4. Dashboard renders 4 stat cards, auto-refreshes every 5 min
 ```
 
 ### Token Refresh
@@ -402,12 +415,19 @@ FITBIT_REDIRECT_URI=http://localhost:3000/settings/fitbit/callback
 
 ### API Request Details
 
-**Heart Rate (Intraday)**
+**Heart Rate (Daily Summary)**
 ```
-GET /1/user/-/activities/heart/date/{date}/1d/1min/time/{start}/{end}.json
+GET /1/user/-/activities/heart/date/{date}/1d.json
 Authorization: Bearer {access_token}
 ```
-Returns minute-by-minute heart rate data for the session window.
+Returns resting heart rate and heart rate zone data for the date.
+
+**Steps**
+```
+GET /1/user/-/activities/steps/date/{date}/1d.json
+Authorization: Bearer {access_token}
+```
+Returns step count for the date.
 
 **Sleep**
 ```
@@ -700,11 +720,11 @@ Export methods: `app-store-connect`, `release-testing`, `enterprise`, `debugging
 
 | Route | Page | Description |
 |-------|------|-------------|
-| `/` | Dashboard | Overview, recent sessions, quick stats |
+| `/` | Dashboard | Overview, Fitbit today stats, recent sessions, quick stats |
 | `/exercises` | Exercises | Searchable exercise library with muscle group filter |
 | `/cycles` | Meso Cycles | List and manage training cycles |
 | `/sessions` | Sessions | Calendar and list view of sessions |
-| `/sessions/[id]` | Session Detail | Edit session, add exercises/sets, start/finish workout, Sync Fitbit |
+| `/sessions/[id]` | Session Detail | Edit session, add exercises/sets, start/finish workout, Sync Fitbit. Completed sessions load read-only with Edit/Lock toggle |
 | `/plans` | Plans | Training plan management |
 | `/plans/[id]` | Plan Detail | Plan session editor |
 | `/suggestions` | Suggestions | Volume and weight recommendations |

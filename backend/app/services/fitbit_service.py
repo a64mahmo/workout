@@ -115,6 +115,75 @@ class FitbitService:
             response.raise_for_status()
             return response.json()
 
+    async def get_steps(self, db: AsyncSession, user: User, date: str) -> Dict[str, Any]:
+        token = await self._refresh_token(db, user)
+        url = f"{self.base_url}/1/user/-/activities/steps/date/{date}/1d.json"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+
+    async def get_today_stats(self, db: AsyncSession, user: User) -> Dict[str, Any]:
+        stats: Dict[str, Any] = {
+            "steps": None,
+            "resting_hr": None,
+            "weight_kg": None,
+            "body_fat_pct": None,
+            "sleep_duration_seconds": None,
+            "sleep_score": None,
+            "sleep_efficiency": None,
+            "connected": True,
+        }
+
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+
+        # Steps
+        try:
+            data = await self.get_steps(db, user, today)
+            activities = data.get("activities-steps", [])
+            if activities:
+                stats["steps"] = int(activities[0].get("value", 0))
+        except Exception as e:
+            print(f"Error fetching steps: {e}")
+
+        # Heart Rate
+        try:
+            data = await self.get_heart_rate(db, user, today)
+            activities = data.get("activities-heart", [])
+            if activities:
+                stats["resting_hr"] = activities[0].get("value", {}).get("restingHeartRate")
+        except Exception as e:
+            print(f"Error fetching today HR: {e}")
+
+        # Weight
+        try:
+            data = await self.get_body_weight(db, user, today)
+            entries = data.get("weight", [])
+            if entries:
+                latest = entries[-1]
+                stats["weight_kg"] = latest.get("weight")
+                stats["body_fat_pct"] = latest.get("fat")
+        except Exception as e:
+            print(f"Error fetching today weight: {e}")
+
+        # Sleep
+        try:
+            data = await self.get_sleep_data(db, user, today)
+            sleeps = data.get("sleep", [])
+            if sleeps:
+                main = next((s for s in sleeps if s.get("isMainSleep")), sleeps[0])
+                stats["sleep_duration_seconds"] = main.get("duration", 0) // 1000
+                stats["sleep_efficiency"] = main.get("efficiency")
+                # Sleep score from sleep log
+                info = main.get("infoCode")
+                stats["sleep_score"] = main.get("efficiency")  # Use efficiency as proxy for Personal apps
+        except Exception as e:
+            print(f"Error fetching today sleep: {e}")
+
+        return stats
+
     async def sync_session_metrics(self, db: AsyncSession, session: TrainingSession, user: User):
         if not user.fitbit_access_token:
             return

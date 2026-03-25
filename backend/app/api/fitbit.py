@@ -45,6 +45,13 @@ async def fitbit_status(user_id: str, db: AsyncSession = Depends(get_db)):
     user = await get_current_user(user_id, db)
     return {"connected": bool(user.fitbit_access_token)}
 
+@router.get("/today-stats")
+async def fitbit_today_stats(user_id: str, db: AsyncSession = Depends(get_db)):
+    user = await get_current_user(user_id, db)
+    if not user.fitbit_access_token:
+        return {"connected": False}
+    return await fitbit_service.get_today_stats(db, user)
+
 @router.post("/sync-session/{session_id}", response_model=SessionResponse)
 async def sync_session_metrics(session_id: str, user_id: str, db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
