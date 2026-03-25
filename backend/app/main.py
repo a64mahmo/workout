@@ -1,4 +1,6 @@
 import os
+import asyncio
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -10,6 +12,8 @@ from .api import (
 )
 from .database import init_db
 
+logger = logging.getLogger(__name__)
+
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:3000,http://localhost:5173"
@@ -17,8 +21,17 @@ ALLOWED_ORIGINS = os.getenv(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # Initialize the database on startup
-    await init_db()
+    for attempt in range(10):
+        try:
+            await init_db()
+            logger.info("Database initialized successfully")
+            break
+        except Exception as e:
+            wait = 2 ** attempt
+            logger.error(f"DB init failed (attempt {attempt + 1}/10): {e}. Retrying in {wait}s...")
+            await asyncio.sleep(wait)
+    else:
+        logger.critical("Could not connect to database after 10 attempts. Starting anyway.")
     yield
 
 
