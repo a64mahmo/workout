@@ -10,11 +10,9 @@ import { Progress } from '@/components/ui/progress';
 import { api } from '@/lib/api';
 import { formatStatus } from '@/lib/utils';
 import type { MesoCycle, TrainingSession } from '@/types';
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
 import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints } from 'lucide-react';
-
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 const goalColors: Record<string, string> = {
   strength: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -24,38 +22,26 @@ const goalColors: Record<string, string> = {
 
 export default function Dashboard() {
   const router = useRouter();
-  const [userId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId');
-      if (!stored || stored === 'default-user') {
-        localStorage.setItem('userId', DEFAULT_USER_ID);
-        return DEFAULT_USER_ID;
-      }
-      return stored;
-    }
-    return DEFAULT_USER_ID;
-  });
-
   const { data: cycles } = useQuery({
-    queryKey: ['cycles', userId],
+    queryKey: ['cycles'],
     queryFn: async () => {
-      const res = await api.get(`/api/meso-cycles?user_id=${userId}`);
+      const res = await api.get('/api/meso-cycles');
       return res.data as MesoCycle[];
     },
   });
 
   const { data: sessions } = useQuery({
-    queryKey: ['sessions', userId],
+    queryKey: ['sessions'],
     queryFn: async () => {
-      const res = await api.get(`/api/sessions?user_id=${userId}`);
+      const res = await api.get('/api/sessions');
       return res.data as TrainingSession[];
     },
   });
 
   const { data: fitbitStats } = useQuery({
-    queryKey: ['fitbit-today', userId],
+    queryKey: ['fitbit-today'],
     queryFn: async () => {
-      const res = await api.get(`/api/fitbit/today-stats?user_id=${userId}`);
+      const res = await api.get('/api/fitbit/today-stats');
       return res.data as {
         connected: boolean;
         steps: number | null;

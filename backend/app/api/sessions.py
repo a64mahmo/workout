@@ -11,11 +11,12 @@ from app.models.models import TrainingSession, SessionExercise, ExerciseSet, Exe
 from app.schemas import SessionCreate, SessionUpdate, SessionResponse
 from app.schemas import SessionExerciseCreate, SessionExerciseUpdate, SessionExerciseResponse
 from app.schemas import ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse
+from app.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 @router.get("", response_model=List[SessionResponse])
-async def list_sessions(user_id: str, db: AsyncSession = Depends(get_db)):
+async def list_sessions(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(TrainingSession)
         .options(
@@ -45,7 +46,7 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     return session_obj
 
 @router.post("", response_model=SessionResponse)
-async def create_session(session: SessionCreate, user_id: str, db: AsyncSession = Depends(get_db)):
+async def create_session(session: SessionCreate, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     new_session = TrainingSession(
         id=str(uuid.uuid4()),
         user_id=user_id,

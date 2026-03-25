@@ -16,10 +16,7 @@ export default function SettingsPage() {
   const { data: user, isLoading } = useQuery<User>({
     queryKey: ['me'],
     queryFn: async () => {
-      const userId = localStorage.getItem('userId');
-      const res = await api.get('/api/auth/me', {
-        headers: { 'X-User-ID': userId || '' },
-      });
+      const res = await api.get('/api/auth/me');
       return res.data;
     },
   });

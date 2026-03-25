@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -7,6 +7,7 @@ import uuid
 from ..database import async_session
 from ..models import Exercise, TrainingSession
 from ..schemas import ExerciseCreate, ExerciseUpdate, ExerciseResponse
+from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/exercises", tags=["exercises"])
 
@@ -30,7 +31,7 @@ async def get_exercise(exercise_id: str):
         return exercise
 
 @router.post("", response_model=ExerciseResponse)
-async def create_exercise(exercise: ExerciseCreate, x_user_id: str = Header(...)):
+async def create_exercise(exercise: ExerciseCreate, _: str = Depends(get_current_user_id)):
     async with async_session() as session:
         new_exercise = Exercise(
             id=str(uuid.uuid4()),
@@ -76,7 +77,7 @@ async def delete_exercise(exercise_id: str):
 @router.get("/{exercise_id}/history")
 async def get_exercise_history(
     exercise_id: str,
-    user_id: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
     limit: int = Query(10, ge=1, le=50)
 ):
     from app.models.models import SessionExercise as SES, ExerciseSet as ES

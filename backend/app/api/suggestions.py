@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, timedelta
@@ -6,11 +6,12 @@ from typing import List, Dict
 from ..database import async_session
 from ..models import Exercise, VolumeHistory, TrainingSession, SessionExercise, ExerciseSet
 from ..schemas import ExerciseResponse
+from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
 @router.get("/exercises")
-async def suggest_exercises(user_id: str = Query(...)):
+async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
     async with async_session() as session:
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         
@@ -54,7 +55,7 @@ async def suggest_exercises(user_id: str = Query(...)):
         return suggestions
 
 @router.get("/weight")
-async def suggest_weight(user_id: str = Query(...), exercise_id: str = Query(...)):
+async def suggest_weight(user_id: str = Depends(get_current_user_id), exercise_id: str = Query(...)):
     async with async_session() as session:
         result = await session.execute(
             select(ExerciseSet, TrainingSession)
@@ -98,7 +99,7 @@ async def suggest_weight(user_id: str = Query(...), exercise_id: str = Query(...
         }
 
 @router.get("/muscle-groups")
-async def volume_by_muscle_group(user_id: str = Query(...)):
+async def volume_by_muscle_group(user_id: str = Depends(get_current_user_id)):
     async with async_session() as session:
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         

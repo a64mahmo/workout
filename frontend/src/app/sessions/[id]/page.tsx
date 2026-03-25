@@ -40,7 +40,6 @@ import {
 import { format } from 'date-fns';
 import { cn, formatStatus } from '@/lib/utils';
 
-const USER_ID = '00000000-0000-0000-0000-000000000000';
 
 // ── Muscle colours ────────────────────────────────────────────────────────────
 const muscleColors: Record<string, string> = {
@@ -198,13 +197,13 @@ function RestControl({
 }
 
 // ── History panel ─────────────────────────────────────────────────────────────
-function ExerciseHistoryPanel({ exerciseId, userId, open }: {
-  exerciseId: string; userId: string; open: boolean;
+function ExerciseHistoryPanel({ exerciseId, open }: {
+  exerciseId: string; open: boolean;
 }) {
   const { data, isLoading } = useQuery<HistoryEntry[]>({
-    queryKey: ['exercise-history', exerciseId, userId],
+    queryKey: ['exercise-history', exerciseId],
     queryFn: async () => {
-      const res = await api.get(`/api/exercises/${exerciseId}/history`, { params: { user_id: userId } });
+      const res = await api.get(`/api/exercises/${exerciseId}/history`);
       return res.data;
     },
     enabled: open,
@@ -453,8 +452,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     },
   });
 
-  const userId = session?.user_id ?? USER_ID;
-
   const initializedSessionIdRef = useRef<string | null>(null);
 
   // Auto-enable editing for non-completed sessions
@@ -619,7 +616,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/complete`); return res.data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
 
@@ -627,7 +624,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/cancel`); return res.data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
       router.push('/sessions');
     },
   });
@@ -636,7 +633,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     mutationFn: async () => { const res = await api.post(`/api/sessions/${id}/start`); return res.data; },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
-      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
 
@@ -649,7 +646,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const { data: userPlans } = useQuery<WorkoutPlan[]>({
     queryKey: ['plans'],
     queryFn: async () => {
-      const res = await api.get('/api/plans', { params: { user_id: userId } });
+      const res = await api.get('/api/plans');
       return res.data;
     },
     enabled: applyPlanOpen,
@@ -657,9 +654,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const previewMutation = useMutation({
     mutationFn: async (planSessionId: string) => {
-      const res = await api.get(`/api/plans/plan-sessions/${planSessionId}/preview`, {
-        params: { user_id: userId },
-      });
+      const res = await api.get(`/api/plans/plan-sessions/${planSessionId}/preview`);
       return res.data as ExerciseProgressionSuggestion[];
     },
     onSuccess: (data) => {
@@ -907,7 +902,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 </div>
 
                 {/* History panel */}
-                {userId && <ExerciseHistoryPanel exerciseId={se.exercise_id} userId={userId} open={historyOpen} />}
+                <ExerciseHistoryPanel exerciseId={se.exercise_id} open={historyOpen} />
 
                 {/* Column headers */}
                 {se.sets.length > 0 && (

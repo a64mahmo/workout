@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   SunIcon,
@@ -15,10 +15,13 @@ import {
   Menu,
   X,
   Settings,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/auth-context';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -53,7 +56,14 @@ function ThemeToggle() {
 
 export function Navigation() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/login');
+  };
 
   return (
     <nav
@@ -115,6 +125,19 @@ export function Navigation() {
           <div className="hidden md:block">
             <ThemeToggle />
           </div>
+
+          {user && (
+            <div className="hidden md:flex items-center gap-2">
+              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <User className="size-3.5" />
+                {user.name}
+              </span>
+              <Button variant="ghost" size="icon-sm" onClick={handleLogout} title="Sign out">
+                <LogOut className="size-4" />
+                <span className="sr-only">Sign out</span>
+              </Button>
+            </div>
+          )}
 
           {/* Mobile Menu Button */}
           <Button
@@ -189,13 +212,20 @@ export function Navigation() {
                   );
                 })}
 
-                {/* Theme Toggle */}
+                {/* Theme + Logout */}
                 <div className="flex items-center justify-between border-t pt-4 mt-2">
-                  <span className="text-sm text-muted-foreground">
-                    Theme
-                  </span>
+                  <span className="text-sm text-muted-foreground">Theme</span>
                   <ThemeToggle />
                 </div>
+                {user && (
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 transition-all"
+                  >
+                    <LogOut className="size-5" />
+                    Sign out ({user.name})
+                  </button>
+                )}
               </div>
             </div>
           </div>

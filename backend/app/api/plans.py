@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.deps import get_current_user_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -101,7 +102,7 @@ class PlanExerciseUpdate(BaseModel):
 
 @router.get("", response_model=List[PlanResponse])
 async def get_plans(
-    user_id: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -173,7 +174,7 @@ async def get_plan(
 @router.post("", response_model=PlanResponse)
 async def create_plan(
     plan_data: PlanCreate,
-    user_id: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     plan = Plan(user_id=user_id, name=plan_data.name, description=plan_data.description)

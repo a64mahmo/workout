@@ -26,8 +26,6 @@ import type { TrainingSession, MesoCycle } from '@/types';
 import { format } from 'date-fns';
 import { Plus, Dumbbell, Flame, ChevronRight, Form } from 'lucide-react';
 
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
-
 function sessionVolume(session: TrainingSession): number {
   return (
     session.exercises?.reduce(
@@ -47,30 +45,19 @@ export default function SessionsPage() {
   });
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [userId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId');
-      if (!stored || stored === 'default-user') {
-        localStorage.setItem('userId', DEFAULT_USER_ID);
-        return DEFAULT_USER_ID;
-      }
-      return stored;
-    }
-    return DEFAULT_USER_ID;
-  });
 
   const { data: sessions, isLoading } = useQuery({
-    queryKey: ['sessions', userId],
+    queryKey: ['sessions'],
     queryFn: async () => {
-      const res = await api.get(`/api/sessions?user_id=${userId}`);
+      const res = await api.get('/api/sessions');
       return res.data as TrainingSession[];
     },
   });
 
   const { data: cycles } = useQuery({
-    queryKey: ['cycles', userId],
+    queryKey: ['cycles'],
     queryFn: async () => {
-      const res = await api.get(`/api/meso-cycles?user_id=${userId}`);
+      const res = await api.get('/api/meso-cycles');
       return res.data as MesoCycle[];
     },
   });
@@ -83,11 +70,11 @@ export default function SessionsPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newSession) => {
-      const res = await api.post(`/api/sessions?user_id=${userId}`, data);
+      const res = await api.post('/api/sessions', data);
       return res.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
       setIsDialogOpen(false);
       setNewSession({
         name: '',
@@ -104,7 +91,7 @@ export default function SessionsPage() {
       await api.delete(`/api/sessions/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sessions', userId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
   });
 

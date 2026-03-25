@@ -14,43 +14,30 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
-
 export default function SuggestionsPage() {
   const [selectedExercise, setSelectedExercise] = useState('');
-  const [userId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId');
-      if (!stored || stored === 'default-user') {
-        localStorage.setItem('userId', DEFAULT_USER_ID);
-        return DEFAULT_USER_ID;
-      }
-      return stored;
-    }
-    return DEFAULT_USER_ID;
-  });
 
   const { data: exerciseSuggestions, isLoading: loadingExercises } = useQuery({
-    queryKey: ['suggestions', 'exercises', userId],
+    queryKey: ['suggestions', 'exercises'],
     queryFn: async () => {
-      const res = await api.get(`/api/suggestions/exercises?user_id=${userId}`);
+      const res = await api.get('/api/suggestions/exercises');
       return res.data as ExerciseSuggestion[];
     },
   });
 
   const { data: muscleGroups } = useQuery({
-    queryKey: ['suggestions', 'muscle-groups', userId],
+    queryKey: ['suggestions', 'muscle-groups'],
     queryFn: async () => {
-      const res = await api.get(`/api/suggestions/muscle-groups?user_id=${userId}`);
+      const res = await api.get('/api/suggestions/muscle-groups');
       return res.data as Record<string, string>;
     },
   });
 
   const { data: weightSuggestion } = useQuery({
-    queryKey: ['suggestions', 'weight', userId, selectedExercise],
+    queryKey: ['suggestions', 'weight', selectedExercise],
     queryFn: async () => {
       if (!selectedExercise) return null;
-      const res = await api.get(`/api/suggestions/weight?user_id=${userId}&exercise_id=${selectedExercise}`);
+      const res = await api.get(`/api/suggestions/weight?exercise_id=${selectedExercise}`);
       return res.data as WeightSuggestion;
     },
     enabled: !!selectedExercise,
