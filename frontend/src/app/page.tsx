@@ -10,9 +10,10 @@ import { Progress } from '@/components/ui/progress';
 import { api } from '@/lib/api';
 import { formatStatus } from '@/lib/utils';
 import type { MesoCycle, TrainingSession } from '@/types';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
-import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints } from 'lucide-react';
+import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints, RefreshCw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 const goalColors: Record<string, string> = {
   strength: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -22,6 +23,8 @@ const goalColors: Record<string, string> = {
 
 export default function Dashboard() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [isSyncing, setIsSyncing] = useState(false);
   const { data: cycles } = useQuery({
     queryKey: ['cycles'],
     queryFn: async () => {
@@ -180,9 +183,26 @@ export default function Dashboard() {
       )}
       {fitbitStats?.connected && (
         <div className="col-span-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="size-4 text-green-600 dark:text-green-400" />
-            <h2 className="font-semibold text-sm">Today&apos;s Fitbit</h2>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-green-600 dark:text-green-400" />
+              <h2 className="font-semibold text-sm">Today&apos;s Fitbit</h2>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs h-7 px-2"
+              disabled={isSyncing}
+              onClick={async () => {
+                setIsSyncing(true);
+                await queryClient.invalidateQueries({ queryKey: ['fitbit-today'] });
+                await queryClient.refetchQueries({ queryKey: ['fitbit-today'] });
+                setIsSyncing(false);
+              }}
+            >
+              <RefreshCw className={`size-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              Sync
+            </Button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {/* Steps */}
