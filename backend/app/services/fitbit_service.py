@@ -2,6 +2,7 @@ import httpx
 import base64
 import os
 from datetime import datetime, timedelta
+from httpx import HTTPStatusError
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -180,6 +181,8 @@ class FitbitService:
             "sleep_efficiency": None,
         }
 
+        rate_limited = False
+
         # Steps
         try:
             data = await self._fitbit_get(
@@ -188,6 +191,10 @@ class FitbitService:
             activities = data.get("activities-steps", [])
             if activities:
                 stats["steps"] = int(activities[0].get("value", 0))
+        except HTTPStatusError as e:
+            if e.response.status_code == 429:
+                rate_limited = True
+            print(f"Fitbit steps error: {e}")
         except Exception as e:
             print(f"Fitbit steps error: {e}")
 
@@ -199,6 +206,10 @@ class FitbitService:
             activities = data.get("activities-heart", [])
             if activities:
                 stats["resting_hr"] = activities[0].get("value", {}).get("restingHeartRate")
+        except HTTPStatusError as e:
+            if e.response.status_code == 429:
+                rate_limited = True
+            print(f"Fitbit HR error: {e}")
         except Exception as e:
             print(f"Fitbit HR error: {e}")
 
@@ -212,6 +223,10 @@ class FitbitService:
                 latest = entries[-1]
                 stats["weight_kg"] = latest.get("weight")
                 stats["body_fat_pct"] = latest.get("fat")
+        except HTTPStatusError as e:
+            if e.response.status_code == 429:
+                rate_limited = True
+            print(f"Fitbit weight error: {e}")
         except Exception as e:
             print(f"Fitbit weight error: {e}")
 
@@ -226,11 +241,16 @@ class FitbitService:
                 stats["sleep_duration_seconds"] = main.get("duration", 0) // 1000
                 stats["sleep_efficiency"] = main.get("efficiency")
                 stats["sleep_score"] = main.get("efficiency")
+        except HTTPStatusError as e:
+            if e.response.status_code == 429:
+                rate_limited = True
+            print(f"Fitbit sleep error: {e}")
         except Exception as e:
             print(f"Fitbit sleep error: {e}")
 
-        # Persist to DB so next request can serve from cache
-        await self._save_today_stats(db, user.id, today, stats)
+        # Only cache if no rate limits hit — prevents locking out null values for 3h
+        if not rate_limited:
+            await self._save_today_stats(db, user.id, today, stats)
 
         return stats
 
