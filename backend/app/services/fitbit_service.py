@@ -136,7 +136,7 @@ class FitbitService:
             response.raise_for_status()
             return response.json()
 
-    async def get_today_stats(self, db: AsyncSession, user: User) -> Dict[str, Any]:
+    async def get_today_stats(self, db: AsyncSession, user: User, date: Optional[str] = None) -> Dict[str, Any]:
         # Refresh token once upfront; if it fails the connection is broken
         try:
             token = await self._refresh_token(db, user)
@@ -155,7 +155,7 @@ class FitbitService:
             "sleep_efficiency": None,
         }
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = date if date else datetime.now().strftime("%Y-%m-%d")
 
         # Steps
         try:

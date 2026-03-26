@@ -44,7 +44,8 @@ export default function Dashboard() {
   const { data: fitbitStats } = useQuery({
     queryKey: ['fitbit-today'],
     queryFn: async () => {
-      const res = await api.get('/api/fitbit/today-stats');
+      const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local timezone
+      const res = await api.get('/api/fitbit/today-stats', { params: { date: today } });
       return res.data as {
         connected: boolean;
         steps: number | null;
