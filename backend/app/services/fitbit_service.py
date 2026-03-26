@@ -77,12 +77,14 @@ class FitbitService:
             response.raise_for_status()
             token_data = response.json()
 
-            user.fitbit_access_token = token_data["access_token"]
+            new_access_token = token_data["access_token"]
+            user.fitbit_access_token = new_access_token
             user.fitbit_refresh_token = token_data["refresh_token"]
             user.fitbit_token_expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
-            
+
             await db.commit()
-            return user.fitbit_access_token
+            # Save token to local var before commit expires the ORM instance
+            return new_access_token
 
     async def get_heart_rate(self, db: AsyncSession, user: User, date_str: str) -> Dict[str, Any]:
         token = await self._refresh_token(db, user)

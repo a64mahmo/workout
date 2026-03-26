@@ -7,14 +7,13 @@ import { useState, useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, CartesianGrid,
 } from 'recharts';
 import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   TrendingUp, TrendingDown, Minus,
   Dumbbell, Scale, Search, ChevronDown, ChevronUp,
@@ -22,6 +21,7 @@ import {
 import {
   format, parseISO, differenceInDays,
   startOfWeek, subWeeks, isWithinInterval, endOfWeek,
+  subMonths, startOfMonth, endOfMonth, isSameMonth, isSameYear,
 } from 'date-fns';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,9 @@ interface WeightSuggestion {
   adjustment_reason: string;
   percentage: number;
 }
+
+type Period = '8W' | '6M' | '1Y';
+type Metric = 'volume' | 'sessions';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,17 +75,50 @@ function sessionVolume(s: TrainingSession): number {
 }
 
 // ---------------------------------------------------------------------------
-// Chart tooltip
+// Chart colors — explicit hex so SVG fill works in both themes
 // ---------------------------------------------------------------------------
 
 function useChartColors() {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
   return {
-    axisText:     dark ? '#9ca3af' : '#6b7280',
-    cursor:       dark ? '#292524' : '#f3f4f6',
-    tooltipBg:    dark ? '#1c1917' : '#ffffff',
-    tooltipBorder:dark ? '#44403c' : '#e7e5e4',
+    barActive:     dark ? '#f97316' : '#ea580c',   // current period highlight
+    barInactive:   dark ? '#52525b' : '#d1d5db',   // past periods — zinc-600 / gray-300
+    axisText:      dark ? '#9ca3af' : '#6b7280',
+    gridLine:      dark ? '#27272a' : '#e5e7eb',   // zinc-800 / gray-200
+    cursor:        dark ? '#27272a' : '#f3f4f6',
+    tooltipBg:     dark ? '#18181b' : '#ffffff',
+    tooltipBorder: dark ? '#3f3f46' : '#e4e4e7',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Chart tooltip factory
+// ---------------------------------------------------------------------------
+
+function makeChartTooltip(
+  metric: Metric,
+  colors: ReturnType<typeof useChartColors>,
+) {
+  return function Inner(props: Record<string, unknown>) {
+    const active  = props.active  as boolean | undefined;
+    const payload = props.payload as { value: number }[] | undefined;
+    const label   = props.label   as string | undefined;
+    if (!active || !payload?.length) return null;
+    const val = payload[0].value;
+    return (
+      <div style={{
+        background: colors.tooltipBg,
+        border: `1px solid ${colors.tooltipBorder}`,
+        borderRadius: 8, padding: '8px 12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)', fontSize: 13,
+      }}>
+        <p style={{ color: colors.axisText, fontSize: 11, marginBottom: 2 }}>{label}</p>
+        <p style={{ fontWeight: 700 }}>
+          {metric === 'volume' ? `${fmtVol(val)} lbs` : `${val} sessions`}
+        </p>
+      </div>
+    );
   };
 }
 
@@ -104,6 +140,61 @@ function MuscleTooltip(colors: ReturnType<typeof useChartColors>) {
       </div>
     );
   };
+}
+
+// ---------------------------------------------------------------------------
+// Volume over time chart data
+// ---------------------------------------------------------------------------
+
+function useChartData(
+  sessions: TrainingSession[] | undefined,
+  period: Period,
+  metric: Metric,
+) {
+  return useMemo(() => {
+    if (!sessions) return [];
+    const completed = sessions.filter((s) => s.status === 'completed');
+
+    if (period === '8W') {
+      const now = new Date();
+      return Array.from({ length: 8 }, (_, i) => {
+        const weekStart = startOfWeek(subWeeks(now, 7 - i), { weekStartsOn: 1 });
+        const weekEnd   = endOfWeek(weekStart, { weekStartsOn: 1 });
+        const bucket = completed.filter((s) => {
+          try {
+            const d = parseISO(s.scheduled_date + 'T00:00:00');
+            return isWithinInterval(d, { start: weekStart, end: weekEnd });
+          } catch { return false; }
+        });
+        return {
+          label: format(weekStart, 'MMM d'),
+          volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
+          sessions: bucket.length,
+          current: i === 7,
+        };
+      });
+    }
+
+    const monthCount = period === '6M' ? 6 : 12;
+    const now = new Date();
+    return Array.from({ length: monthCount }, (_, i) => {
+      const mo    = subMonths(now, monthCount - 1 - i);
+      const start = startOfMonth(mo);
+      const end   = endOfMonth(mo);
+      const bucket = completed.filter((s) => {
+        try {
+          const d = parseISO(s.scheduled_date + 'T00:00:00');
+          return isWithinInterval(d, { start, end });
+        } catch { return false; }
+      });
+      return {
+        label: format(mo, 'MMM'),
+        volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
+        sessions: bucket.length,
+        current: isSameMonth(mo, now) && isSameYear(mo, now),
+      };
+    });
+  }, [sessions, period, metric]);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +244,8 @@ export default function SuggestionsPage() {
   const [search, setSearch] = useState('');
   const [muscleFilter, setMuscleFilter] = useState('all');
   const [showAll, setShowAll] = useState(false);
+  const [period, setPeriod] = useState<Period>('8W');
+  const [metric, setMetric] = useState<Metric>('volume');
   const chartColors = useChartColors();
 
   // ── Queries ────────────────────────────────────────────────────────────────
@@ -191,6 +284,7 @@ export default function SuggestionsPage() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const { thisWeek, lastWeek } = useWeeklyVolumeByMuscle(sessions);
+  const chartData = useChartData(sessions, period, metric);
 
   // Muscle group chart data (sorted by volume desc)
   const muscleChartData = useMemo(() => {
@@ -256,6 +350,99 @@ export default function SuggestionsPage() {
         </p>
       </div>
 
+      {/* ── Volume over time chart (moved from sessions) ── */}
+      {sessions && sessions.length > 0 && (
+        <section className="rounded-xl border border-border bg-card p-4 space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <h2 className="font-semibold text-sm flex items-center gap-2">
+                <TrendingUp className="size-4 text-primary" />
+                {metric === 'volume' ? 'Volume over time' : 'Sessions over time'}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {metric === 'volume' ? 'Total lbs lifted per period' : 'Number of sessions completed'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Metric toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-border text-xs">
+                {(['volume', 'sessions'] as Metric[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMetric(m)}
+                    className={`px-3 py-1.5 capitalize transition-colors ${
+                      metric === m
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              {/* Period toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-border text-xs">
+                {(['8W', '6M', '1Y'] as Period[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-3 py-1.5 transition-colors ${
+                      period === p
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={chartData}
+              margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
+              barCategoryGap="30%"
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke={chartColors.gridLine}
+                vertical={false}
+              />
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: chartColors.axisText }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: chartColors.axisText }}
+                tickFormatter={(v) => metric === 'volume' ? fmtVol(v) : String(v)}
+                width={48}
+              />
+              <Tooltip
+                content={makeChartTooltip(metric, chartColors)}
+                cursor={{ fill: chartColors.cursor, radius: 4 }}
+              />
+              <Bar dataKey={metric} radius={[4, 4, 0, 0]} maxBarSize={48}>
+                {chartData.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill={entry.current ? chartColors.barActive : chartColors.barInactive}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-[11px] text-muted-foreground">
+            Highlighted bar = current {period === '8W' ? 'week' : 'month'}
+          </p>
+        </section>
+      )}
+
       {/* ── This week vs last week ── */}
       {weekCompareData.length > 0 && (
         <section className="rounded-xl border border-border bg-card p-4 space-y-3">
@@ -317,12 +504,17 @@ export default function SuggestionsPage() {
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">Total lbs lifted per muscle</p>
           </div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={Math.max(160, muscleChartData.length * 28)}>
             <BarChart
               data={muscleChartData}
               layout="vertical"
               margin={{ top: 0, right: 8, left: 0, bottom: 0 }}
             >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke={chartColors.gridLine}
+                horizontal={false}
+              />
               <XAxis
                 type="number"
                 axisLine={false}
@@ -518,7 +710,6 @@ export default function SuggestionsPage() {
           <p className="text-sm text-muted-foreground py-6 text-center">No exercises match</p>
         ) : (
           <>
-            {/* Max volume for bar scaling */}
             {(() => {
               const maxVol = Math.max(...visibleExercises.map(s => s.total_volume), 1);
               return (

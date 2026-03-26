@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell,
-} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -25,11 +20,12 @@ import type { TrainingSession, MesoCycle } from '@/types';
 import {
   format, subMonths, addMonths, startOfMonth, endOfMonth,
   parseISO, differenceInDays, isSameMonth, isSameYear,
-  subWeeks, startOfWeek, endOfWeek, isWithinInterval,
+  subWeeks,
 } from 'date-fns';
 import {
   Plus, Dumbbell, Flame, ChevronRight, ChevronLeft,
-  Heart, TrendingUp, Calendar, Activity, Zap, Trash2,
+  Heart, Calendar, Activity, Zap, Trash2,
+  ArrowDownUp,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -66,20 +62,6 @@ function fmtVol(v: number): string {
   return `${Math.round(v)}`;
 }
 
-// Resolved chart colours per theme — SVG fill doesn't support CSS vars
-function useChartColors() {
-  const { resolvedTheme } = useTheme();
-  const dark = resolvedTheme === 'dark';
-  return {
-    barActive:   dark ? '#f97316' : '#ea580c',   // orange-500 / orange-600
-    barInactive: dark ? '#431407' : '#fed7aa',   // orange-950 / orange-200
-    axisText:    dark ? '#9ca3af' : '#6b7280',   // gray-400 / gray-500
-    cursor:      dark ? '#292524' : '#fef3c7',   // stone-800 / amber-100
-    tooltipBg:   dark ? '#1c1917' : '#ffffff',
-    tooltipBorder: dark ? '#44403c' : '#e7e5e4',
-  };
-}
-
 const MUSCLE_COLOR: Record<string, string> = {
   chest: '#f43f5e',
   back: '#3b82f6',
@@ -106,9 +88,6 @@ const MUSCLE_LABEL: Record<string, string> = {
   hamstrings: 'Hamstrings',
   cardio: 'Cardio',
 };
-
-type Period = '8W' | '6M' | '1Y';
-type Metric = 'volume' | 'sessions';
 
 // ---------------------------------------------------------------------------
 // Stats computation
@@ -178,66 +157,6 @@ function useStats(sessions: TrainingSession[] | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Chart data
-// ---------------------------------------------------------------------------
-
-function useChartData(
-  sessions: TrainingSession[] | undefined,
-  period: Period,
-  metric: Metric,
-) {
-  return useMemo(() => {
-    if (!sessions) return [];
-    const completed = sessions.filter((s) => s.status === 'completed');
-
-    if (period === '8W') {
-      const now = new Date();
-      return Array.from({ length: 8 }, (_, i) => {
-        const weekStart = startOfWeek(subWeeks(now, 7 - i), { weekStartsOn: 1 });
-        const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-        const bucket = completed.filter((s) => {
-          try {
-            const d = parseISO(s.scheduled_date + 'T00:00:00');
-            return isWithinInterval(d, { start: weekStart, end: weekEnd });
-          } catch {
-            return false;
-          }
-        });
-        return {
-          label: format(weekStart, 'MMM d'),
-          volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
-          sessions: bucket.length,
-          current: i === 7,
-        };
-      });
-    }
-
-    const monthCount = period === '6M' ? 6 : 12;
-    const now = new Date();
-    return Array.from({ length: monthCount }, (_, i) => {
-      const mo = subMonths(now, monthCount - 1 - i);
-      const start = startOfMonth(mo);
-      const end = endOfMonth(mo);
-      const bucket = completed.filter((s) => {
-        try {
-          const d = parseISO(s.scheduled_date + 'T00:00:00');
-          return isWithinInterval(d, { start, end });
-        } catch {
-          return false;
-        }
-      });
-      return {
-        label: format(mo, 'MMM'),
-        volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
-        sessions: bucket.length,
-        current:
-          isSameMonth(mo, now) && isSameYear(mo, now),
-      };
-    });
-  }, [sessions, period, metric]);
-}
-
-// ---------------------------------------------------------------------------
 // Suggestions: muscle groups overdue for training
 // ---------------------------------------------------------------------------
 
@@ -278,41 +197,6 @@ function useSuggestions(sessions: TrainingSession[] | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Custom chart tooltip
-// ---------------------------------------------------------------------------
-
-function makeChartTooltip(
-  metric: Metric,
-  colors: { tooltipBg: string; tooltipBorder: string; axisText: string },
-) {
-  // eslint-disable-next-line react/display-name
-  return function ChartTooltipInner(props: Record<string, unknown>) {
-    const active = props.active as boolean | undefined;
-    const payload = props.payload as { value: number }[] | undefined;
-    const label = props.label as string | undefined;
-    if (!active || !payload?.length) return null;
-    const val = payload[0].value;
-    return (
-      <div
-        style={{
-          background: colors.tooltipBg,
-          border: `1px solid ${colors.tooltipBorder}`,
-          borderRadius: 8,
-          padding: '8px 12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          fontSize: 13,
-        }}
-      >
-        <p style={{ color: colors.axisText, fontSize: 11, marginBottom: 2 }}>{label}</p>
-        <p style={{ fontWeight: 700 }}>
-          {metric === 'volume' ? `${fmtVol(val)} lbs` : `${val} sessions`}
-        </p>
-      </div>
-    );
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Session card
 // ---------------------------------------------------------------------------
 
@@ -329,7 +213,7 @@ function SessionCard({
   const muscleGroups = useMemo(() => sessionMuscleGroups(session), [session]);
   const exerciseCount = session.exercises?.length ?? 0;
 
-  const { dayNum, monthStr, yearStr } = useMemo(() => {
+  const { dayNum, monthStr } = useMemo(() => {
     try {
       const d = parseISO(
         (session.actual_date || session.scheduled_date) + 'T00:00:00',
@@ -337,10 +221,9 @@ function SessionCard({
       return {
         dayNum: format(d, 'd'),
         monthStr: format(d, 'MMM'),
-        yearStr: format(d, 'yyyy'),
       };
     } catch {
-      return { dayNum: '--', monthStr: '---', yearStr: '' };
+      return { dayNum: '--', monthStr: '---' };
     }
   }, [session.actual_date, session.scheduled_date]);
 
@@ -456,10 +339,12 @@ function SessionCard({
 // Main page
 // ---------------------------------------------------------------------------
 
+type SortOrder = 'desc' | 'asc';
+type StatusFilter = 'all' | 'completed' | 'cancelled' | 'scheduled' | 'in_progress';
+
 export default function SessionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const chartColors = useChartColors();
 
   // New session dialog
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -470,12 +355,12 @@ export default function SessionsPage() {
     notes: '',
   });
 
-  // Chart controls
-  const [period, setPeriod] = useState<Period>('8W');
-  const [metric, setMetric] = useState<Metric>('volume');
-
   // Month navigation for completed sessions
   const [viewMonth, setViewMonth] = useState<Date>(new Date());
+
+  // History sort + filter
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // -------------------------------------------------------------------------
   // Queries
@@ -550,7 +435,6 @@ export default function SessionsPage() {
   // Derived data
   // -------------------------------------------------------------------------
   const stats = useStats(sessions);
-  const chartData = useChartData(sessions, period, metric);
   const suggestions = useSuggestions(sessions);
 
   const upcoming = useMemo(
@@ -561,20 +445,33 @@ export default function SessionsPage() {
     [sessions],
   );
 
-  const completedInMonth = useMemo(
-    () =>
-      sessions?.filter((s) => {
-        if (s.status !== 'completed' && s.status !== 'cancelled') return false;
-        try {
-          const d = parseISO(
-            (s.actual_date || s.scheduled_date) + 'T00:00:00',
-          );
-          return isSameMonth(d, viewMonth) && isSameYear(d, viewMonth);
-        } catch {
-          return false;
-        }
-      }) ?? [],
-    [sessions, viewMonth],
+  // History: filter by month + status, then sort
+  const historyInMonth = useMemo(() => {
+    const filtered = sessions?.filter((s) => {
+      // Always filter by viewMonth
+      const dateStr = s.actual_date || s.scheduled_date;
+      try {
+        const d = parseISO(dateStr + 'T00:00:00');
+        if (!isSameMonth(d, viewMonth) || !isSameYear(d, viewMonth)) return false;
+      } catch {
+        return false;
+      }
+      // Status filter
+      if (statusFilter === 'all') {
+        return s.status === 'completed' || s.status === 'cancelled';
+      }
+      return s.status === statusFilter;
+    }) ?? [];
+
+    return [...filtered].sort((a, b) => {
+      const da = (a.actual_date || a.scheduled_date) ?? '';
+      const db = (b.actual_date || b.scheduled_date) ?? '';
+      return sortOrder === 'desc' ? db.localeCompare(da) : da.localeCompare(db);
+    });
+  }, [sessions, viewMonth, statusFilter, sortOrder]);
+
+  const hasHistory = sessions?.some(
+    (s) => s.status === 'completed' || s.status === 'cancelled',
   );
 
   const canCreate =
@@ -680,7 +577,7 @@ export default function SessionsPage() {
 
       {isLoading ? (
         <div className="space-y-3">
-          {[80, 180, 80, 300].map((h, i) => (
+          {[80, 80, 300].map((h, i) => (
             <div
               key={i}
               className="rounded-xl bg-muted animate-pulse"
@@ -741,96 +638,6 @@ export default function SessionsPage() {
                 }
                 color="green"
               />
-            </div>
-          )}
-
-          {/* ── Volume / Sessions chart ── */}
-          {sessions && sessions.length > 0 && (
-            <div className="rounded-xl border border-border bg-card p-4 space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h2 className="font-semibold text-sm flex items-center gap-2">
-                  <TrendingUp className="size-4 text-primary" />
-                  {metric === 'volume' ? 'Volume over time' : 'Sessions over time'}
-                </h2>
-                <div className="flex items-center gap-2">
-                  {/* Metric toggle */}
-                  <div className="flex rounded-lg overflow-hidden border border-border text-xs">
-                    {(['volume', 'sessions'] as Metric[]).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setMetric(m)}
-                        className={`px-3 py-1.5 capitalize transition-colors ${
-                          metric === m
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                  {/* Period toggle */}
-                  <div className="flex rounded-lg overflow-hidden border border-border text-xs">
-                    {(['8W', '6M', '1Y'] as Period[]).map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => setPeriod(p)}
-                        className={`px-3 py-1.5 transition-colors ${
-                          period === p
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 0, right: 0, left: -20, bottom: 0 }}
-                  barCategoryGap="30%"
-                >
-                  <XAxis
-                    dataKey="label"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 11, fill: chartColors.axisText }}
-                  />
-                  <YAxis
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 11, fill: chartColors.axisText }}
-                    tickFormatter={(v) =>
-                      metric === 'volume' ? fmtVol(v) : String(v)
-                    }
-                    width={48}
-                  />
-                  <Tooltip
-                    content={makeChartTooltip(metric, chartColors)}
-                    cursor={{ fill: chartColors.cursor, radius: 4 }}
-                  />
-                  <Bar
-                    dataKey={metric}
-                    radius={[4, 4, 0, 0]}
-                    maxBarSize={48}
-                  >
-                    {chartData.map((entry, i) => (
-                      <Cell
-                        key={i}
-                        fill={
-                          entry.current
-                            ? chartColors.barActive
-                            : chartColors.barInactive
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
             </div>
           )}
 
@@ -897,38 +704,71 @@ export default function SessionsPage() {
             </section>
           )}
 
-          {/* ── Completed: month navigator ── */}
-          {sessions && sessions.some((s) => s.status === 'completed' || s.status === 'cancelled') && (
+          {/* ── History ── */}
+          {hasHistory && (
             <section className="space-y-3">
-              {/* Month nav */}
-              <div className="flex items-center justify-between">
+              {/* Month nav + filters */}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
                   History
                 </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setViewMonth((m) => subMonths(m, 1))}
-                    className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Status filter */}
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(v) => setStatusFilter((v ?? 'all') as StatusFilter)}
+                    items={[
+                      { value: 'all', label: 'All' },
+                      { value: 'completed', label: 'Completed' },
+                      { value: 'cancelled', label: 'Cancelled' },
+                    ]}
                   >
-                    <ChevronLeft className="size-4" />
-                  </button>
-                  <span className="text-sm font-medium min-w-[100px] text-center">
-                    {format(viewMonth, 'MMM yyyy')}
-                  </span>
+                    <SelectTrigger className="h-7 w-28 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" label="All">All</SelectItem>
+                      <SelectItem value="completed" label="Completed">Completed</SelectItem>
+                      <SelectItem value="cancelled" label="Cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Sort order */}
                   <button
-                    onClick={() => setViewMonth((m) => addMonths(m, 1))}
-                    disabled={
-                      isSameMonth(viewMonth, new Date()) &&
-                      isSameYear(viewMonth, new Date())
-                    }
-                    className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+                    onClick={() => setSortOrder((o) => o === 'desc' ? 'asc' : 'desc')}
+                    className="flex items-center gap-1 h-7 px-2 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title={sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
                   >
-                    <ChevronRight className="size-4" />
+                    <ArrowDownUp className="size-3" />
+                    {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
                   </button>
+
+                  {/* Month navigator */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setViewMonth((m) => subMonths(m, 1))}
+                      className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronLeft className="size-4" />
+                    </button>
+                    <span className="text-xs font-medium min-w-[72px] text-center">
+                      {format(viewMonth, 'MMM yyyy')}
+                    </span>
+                    <button
+                      onClick={() => setViewMonth((m) => addMonths(m, 1))}
+                      disabled={
+                        isSameMonth(viewMonth, new Date()) &&
+                        isSameYear(viewMonth, new Date())
+                      }
+                      className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      <ChevronRight className="size-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {completedInMonth.length === 0 ? (
+              {historyInMonth.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border py-10 flex flex-col items-center gap-2 text-muted-foreground">
                   <Calendar className="size-6" />
                   <p className="text-sm">No sessions in {format(viewMonth, 'MMMM yyyy')}</p>
@@ -936,13 +776,13 @@ export default function SessionsPage() {
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    {completedInMonth.length} session{completedInMonth.length !== 1 ? 's' : ''} ·{' '}
+                    {historyInMonth.length} session{historyInMonth.length !== 1 ? 's' : ''} ·{' '}
                     {fmtVol(
-                      completedInMonth.reduce((t, s) => t + sessionVolume(s), 0),
+                      historyInMonth.reduce((t, s) => t + sessionVolume(s), 0),
                     )}{' '}
                     lbs total
                   </p>
-                  {completedInMonth.map((s) => (
+                  {historyInMonth.map((s) => (
                     <SessionCard
                       key={s.id}
                       session={s}
