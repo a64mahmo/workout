@@ -851,6 +851,22 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
               </Button>
             )}
+            {session.status === 'completed' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => syncFitbitMutation.mutate()}
+                disabled={syncFitbitMutation.isPending}
+                className="shrink-0 gap-1.5"
+              >
+                {syncFitbitMutation.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Activity className="size-3.5 text-green-600 dark:text-green-400" />
+                )}
+                Sync
+              </Button>
+            )}
             {isCompleted && (
               <Button
                 variant={isEditing ? 'default' : 'outline'}
@@ -1248,25 +1264,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       {/* ── Fitbit Integration ────────────────────────────────────────────── */}
       {(session.status === 'completed' || session.status === 'cancelled') && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-            <div className="flex items-center gap-2">
-              <Activity className="size-4 text-green-600 dark:text-green-400" />
-              <span className="font-semibold text-sm">Fitbit Data</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => syncFitbitMutation.mutate()}
-              disabled={syncFitbitMutation.isPending}
-              className="gap-1.5"
-            >
-              {syncFitbitMutation.isPending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Activity className="size-3.5" />
-              )}
-              Sync Fitbit
-            </Button>
+          <div className="flex items-center px-4 py-3 border-b border-border/50 gap-2">
+            <Activity className="size-4 text-green-600 dark:text-green-400" />
+            <span className="font-semibold text-sm">Fitbit Data</span>
           </div>
 
           <div className="px-4 py-3 space-y-3">
