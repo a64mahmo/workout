@@ -680,7 +680,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       queryClient.invalidateQueries({ queryKey: ['session', id] });
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
       setIsConfettiActive(true);
-      setTimeout(() => setIsConfettiActive(false), 2500);
+      setTimeout(() => {
+        setIsConfettiActive(false);
+        router.push('/sessions');
+      }, 2500);
     },
   });
 
