@@ -53,7 +53,7 @@ class FitbitService:
             user.fitbit_access_token = token_data["access_token"]
             user.fitbit_refresh_token = token_data["refresh_token"]
             user.fitbit_user_id = token_data["user_id"]
-            user.fitbit_token_expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
+            user.fitbit_token_expires_at = datetime.now() + timedelta(seconds=token_data["expires_in"])
 
             db.add(user)
             await db.commit()
@@ -61,7 +61,7 @@ class FitbitService:
             return token_data
 
     async def _refresh_token(self, db: AsyncSession, user: User) -> str:
-        if user.fitbit_token_expires_at and user.fitbit_token_expires_at > datetime.utcnow() + timedelta(minutes=5):
+        if user.fitbit_token_expires_at and user.fitbit_token_expires_at > datetime.now() + timedelta(minutes=5):
             return user.fitbit_access_token
 
         auth_header = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
@@ -82,7 +82,7 @@ class FitbitService:
             new_access_token = token_data["access_token"]
             user.fitbit_access_token = new_access_token
             user.fitbit_refresh_token = token_data["refresh_token"]
-            user.fitbit_token_expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
+            user.fitbit_token_expires_at = datetime.now() + timedelta(seconds=token_data["expires_in"])
 
             db.add(user)
             await db.commit()
