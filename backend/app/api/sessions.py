@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete as sa_delete
+from sqlalchemy import select, delete as sa_delete, func
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime
@@ -130,6 +130,78 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
         db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
     await db.commit()
     return {"message": "Session started", "start_time": db_session.start_time.isoformat()}
+
+@router.get("/{session_id}/pre-summary")
+async def get_session_pre_summary(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(TrainingSession)
+        .options(
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+        )
+        .where(TrainingSession.id == session_id)
+    )
+    db_session = result.scalar_one_or_none()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    count_result = await db.execute(
+        select(func.count(TrainingSession.id))
+        .where(TrainingSession.user_id == db_session.user_id)
+        .where(TrainingSession.status == 'completed')
+    )
+    workout_number = (count_result.scalar() or 0) + 1
+
+    duration_seconds = None
+    if db_session.start_time:
+        duration_seconds = int((datetime.utcnow() - db_session.start_time).total_seconds())
+
+    prs = []
+    for se in db_session.session_exercises:
+        completed = [s for s in se.sets if s.is_completed and not s.is_warmup and s.weight and s.weight > 0]
+        if not completed:
+            continue
+        current_max = max(s.weight for s in completed)
+
+        hist_result = await db.execute(
+            select(func.max(ExerciseSet.weight))
+            .join(SessionExercise, SessionExercise.id == ExerciseSet.session_exercise_id)
+            .join(TrainingSession, TrainingSession.id == SessionExercise.session_id)
+            .where(SessionExercise.exercise_id == se.exercise_id)
+            .where(TrainingSession.user_id == db_session.user_id)
+            .where(TrainingSession.id != session_id)
+            .where(TrainingSession.status == 'completed')
+            .where(ExerciseSet.is_completed == True)
+            .where(ExerciseSet.is_warmup == False)
+        )
+        hist_max = hist_result.scalar() or 0
+
+        if current_max > hist_max:
+            prs.append({
+                "exercise_name": se.exercise.name,
+                "old_max": float(hist_max),
+                "new_max": float(current_max),
+            })
+
+    total_volume = sum(
+        s.reps * s.weight
+        for se in db_session.session_exercises
+        for s in se.sets
+        if s.is_completed and not s.is_warmup and s.reps and s.weight
+    )
+    completed_sets_count = sum(1 for se in db_session.session_exercises for s in se.sets if s.is_completed)
+    total_sets_count = sum(len(se.sets) for se in db_session.session_exercises)
+
+    return {
+        "workout_number": workout_number,
+        "duration_seconds": duration_seconds,
+        "total_volume": total_volume,
+        "completed_sets": completed_sets_count,
+        "total_sets": total_sets_count,
+        "exercise_count": len(db_session.session_exercises),
+        "prs": prs,
+    }
+
 
 @router.post("/{session_id}/complete")
 async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):

@@ -36,6 +36,8 @@ import {
   Weight,
   Loader2,
   Pencil,
+  Trophy,
+  Clock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn, formatStatus } from '@/lib/utils';
@@ -381,6 +383,55 @@ function SetRow({
   );
 }
 
+// ── Pre-summary type ──────────────────────────────────────────────────────────
+interface PreSummary {
+  workout_number: number;
+  duration_seconds: number | null;
+  total_volume: number;
+  completed_sets: number;
+  total_sets: number;
+  exercise_count: number;
+  prs: { exercise_name: string; old_max: number; new_max: number }[];
+}
+
+// ── Confetti ──────────────────────────────────────────────────────────────────
+function ConfettiEffect({ active }: { active: boolean }) {
+  const pieces = useMemo(() =>
+    Array.from({ length: 80 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      color: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFEAA7', '#DDA0DD', '#98FB98', '#FFD700', '#FF9F43'][i % 8],
+      delay: Math.random() * 700,
+      duration: 900 + Math.random() * 700,
+      rotate: Math.random() * 360,
+      size: 6 + Math.random() * 9,
+      isCircle: Math.random() > 0.5,
+    })), []);
+
+  if (!active) return null;
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[200] overflow-hidden">
+      {pieces.map(p => (
+        <div
+          key={p.id}
+          style={{
+            position: 'absolute',
+            left: `${p.left}%`,
+            top: '-20px',
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            borderRadius: p.isCircle ? '50%' : '3px',
+            transform: `rotate(${p.rotate}deg)`,
+            animation: `confettiFall ${p.duration}ms ${p.delay}ms ease-in forwards`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -392,6 +443,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isConfettiActive, setIsConfettiActive] = useState(false);
 
   // Per-set edit state
   const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
@@ -450,6 +502,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       const res = await api.get('/api/exercises');
       return res.data as Exercise[];
     },
+  });
+
+  const { data: preSummary, isLoading: isSummaryLoading } = useQuery<PreSummary>({
+    queryKey: ['session-pre-summary', id],
+    queryFn: async () => {
+      const res = await api.get(`/api/sessions/${id}/pre-summary`);
+      return res.data as PreSummary;
+    },
+    enabled: isFinishDialogOpen,
+    staleTime: 0,
   });
 
   const initializedSessionIdRef = useRef<string | null>(null);
@@ -617,6 +679,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
       queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      setIsConfettiActive(true);
+      setTimeout(() => setIsConfettiActive(false), 2500);
     },
   });
 
@@ -711,8 +775,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     : session.status === 'cancelled' ? 'destructive'
     : 'secondary';
 
+  function fmtDuration(secs: number) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  function fmtVol(v: number) {
+    return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toLocaleString();
+  }
+
   return (
     <div className="space-y-4 pb-36">
+
+      <ConfettiEffect active={isConfettiActive} />
 
       {/* ── Sticky header ──────────────────────────────────────────────────── */}
       <div className="sticky top-14 z-30 -mx-4 bg-background/95 backdrop-blur border-b px-4 py-3">
@@ -785,16 +864,82 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       <Dialog open={isFinishDialogOpen} onOpenChange={setIsFinishDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm finish workout</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Trophy className="size-5 text-yellow-500" />
+              Finish workout
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm"><strong>Exercises:</strong> {session.exercises.length}</p>
-            <p className="text-sm"><strong>Sets completed:</strong> {completedSets}/{session.exercises.reduce((sum, se) => sum + se.sets.length, 0)}</p>
-            <p className="text-sm"><strong>Total volume:</strong> {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs</p>
-            <p className="text-sm text-muted-foreground">This will mark your workout finished and save the current progress.</p>
-          </div>
+
+          {isSummaryLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : preSummary ? (
+            <div className="space-y-4">
+              {/* Workout number badge */}
+              <div className="flex items-center justify-center">
+                <span className="text-3xl font-bold tabular-nums">#{preSummary.workout_number}</span>
+                <span className="ml-2 text-sm text-muted-foreground self-end mb-1">workout</span>
+              </div>
+
+              {/* Stats grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {preSummary.duration_seconds != null && (
+                  <div className="rounded-xl bg-muted/60 px-3 py-2.5 flex flex-col gap-0.5">
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      <Clock className="size-3" /> Duration
+                    </span>
+                    <span className="font-semibold tabular-nums">{fmtDuration(preSummary.duration_seconds)}</span>
+                  </div>
+                )}
+                <div className="rounded-xl bg-muted/60 px-3 py-2.5 flex flex-col gap-0.5">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Weight className="size-3" /> Volume
+                  </span>
+                  <span className="font-semibold tabular-nums">{fmtVol(preSummary.total_volume)} lbs</span>
+                </div>
+                <div className="rounded-xl bg-muted/60 px-3 py-2.5 flex flex-col gap-0.5">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Dumbbell className="size-3" /> Exercises
+                  </span>
+                  <span className="font-semibold tabular-nums">{preSummary.exercise_count}</span>
+                </div>
+                <div className="rounded-xl bg-muted/60 px-3 py-2.5 flex flex-col gap-0.5">
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <CheckCircle2 className="size-3" /> Sets
+                  </span>
+                  <span className="font-semibold tabular-nums">{preSummary.completed_sets}/{preSummary.total_sets}</span>
+                </div>
+              </div>
+
+              {/* PRs */}
+              {preSummary.prs.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-yellow-600 dark:text-yellow-400 flex items-center gap-1.5">
+                    <Trophy className="size-3.5" /> New Personal Records
+                  </p>
+                  <div className="space-y-1">
+                    {preSummary.prs.map(pr => (
+                      <div key={pr.exercise_name} className="flex items-center justify-between rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/40 px-3 py-1.5">
+                        <span className="text-xs font-medium truncate mr-2">{pr.exercise_name}</span>
+                        <span className="text-xs tabular-nums text-muted-foreground shrink-0">
+                          {pr.old_max > 0 ? `${pr.old_max} → ` : ''}<span className="text-yellow-600 dark:text-yellow-400 font-semibold">{pr.new_max} lbs</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm"><strong>Sets completed:</strong> {completedSets}/{session.exercises.reduce((sum, se) => sum + se.sets.length, 0)}</p>
+              <p className="text-sm"><strong>Total volume:</strong> {fmtVol(totalVolume)} lbs</p>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsFinishDialogOpen(false)}>
               Cancel

@@ -17,3 +17,5 @@ backend/.pytest_cache
 *.log
 .pytest_cache
 __pycache__
+*.csv
+seed_*.py

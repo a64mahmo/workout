@@ -68,3 +68,6 @@ htmlcov/
 .cache/
 .parcel-cache/
 .stylelintcache
+
+*.csv
+seed_*.py
