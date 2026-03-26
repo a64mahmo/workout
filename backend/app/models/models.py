@@ -137,6 +137,11 @@ class HealthMetric(Base):
     body_fat_pct = Column(Float, nullable=True)
     bmi = Column(Float, nullable=True)
 
+    # Fitbit daily stats cache
+    steps = Column(Integer, nullable=True)
+    resting_hr = Column(Integer, nullable=True)
+    fitbit_synced_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="health_metrics")
     session = relationship("TrainingSession", back_populates="health_metric")

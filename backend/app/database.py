@@ -1,7 +1,7 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./workout.db")
 
@@ -37,3 +37,13 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables (no-op if already present)
+        for stmt in [
+            "ALTER TABLE health_metrics ADD COLUMN steps INTEGER",
+            "ALTER TABLE health_metrics ADD COLUMN resting_hr INTEGER",
+            "ALTER TABLE health_metrics ADD COLUMN fitbit_synced_at TIMESTAMP",
+        ]:
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                pass  # Column already exists

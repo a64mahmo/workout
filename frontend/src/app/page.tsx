@@ -57,8 +57,8 @@ export default function Dashboard() {
         sleep_score: number | null;
       };
     },
-    staleTime: 0,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 3 * 60 * 60 * 1000,
+    refetchInterval: false,
     retry: false,
   });
 
@@ -196,9 +196,14 @@ export default function Dashboard() {
               disabled={isSyncing}
               onClick={async () => {
                 setIsSyncing(true);
-                await queryClient.invalidateQueries({ queryKey: ['fitbit-today'] });
-                await queryClient.refetchQueries({ queryKey: ['fitbit-today'] });
-                setIsSyncing(false);
+                try {
+                  const today = new Date().toLocaleDateString('en-CA');
+                  await api.post('/api/fitbit/sync-today', null, { params: { date: today } });
+                  await queryClient.invalidateQueries({ queryKey: ['fitbit-today'] });
+                  await queryClient.refetchQueries({ queryKey: ['fitbit-today'] });
+                } finally {
+                  setIsSyncing(false);
+                }
               }}
             >
               <RefreshCw className={`size-3.5 ${isSyncing ? 'animate-spin' : ''}`} />

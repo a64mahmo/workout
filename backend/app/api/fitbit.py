@@ -74,6 +74,18 @@ async def fitbit_today_stats(
     return await fitbit_service.get_today_stats(db, user, date=date)
 
 
+@router.post("/sync-today")
+async def sync_today_stats(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+    date: str = None,
+):
+    user = await _get_user(user_id, db)
+    if not user.fitbit_access_token:
+        return {"connected": False}
+    return await fitbit_service.get_today_stats(db, user, date=date, force=True)
+
+
 @router.post("/sync-session/{session_id}", response_model=SessionResponse)
 async def sync_session_metrics(
     session_id: str,

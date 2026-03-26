@@ -136,7 +136,32 @@ class FitbitService:
             response.raise_for_status()
             return response.json()
 
-    async def get_today_stats(self, db: AsyncSession, user: User, date: Optional[str] = None) -> Dict[str, Any]:
+    async def get_today_stats(self, db: AsyncSession, user: User, date: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+        today = date if date else datetime.now().strftime("%Y-%m-%d")
+
+        # Return from DB cache if fresh (< 3 hours) and not a forced sync
+        if not force:
+            stmt = select(HealthMetric).where(
+                HealthMetric.user_id == user.id,
+                HealthMetric.date == today,
+                HealthMetric.fitbit_synced_at.isnot(None),
+            )
+            result = await db.execute(stmt)
+            cached = result.scalars().first()
+            if cached and cached.fitbit_synced_at:
+                age_seconds = (datetime.now() - cached.fitbit_synced_at).total_seconds()
+                if age_seconds < 3 * 3600:
+                    return {
+                        "connected": True,
+                        "steps": cached.steps,
+                        "resting_hr": cached.resting_hr,
+                        "weight_kg": cached.weight_kg,
+                        "body_fat_pct": cached.body_fat_pct,
+                        "sleep_duration_seconds": cached.sleep_duration_seconds,
+                        "sleep_score": cached.sleep_score,
+                        "sleep_efficiency": cached.sleep_efficiency,
+                    }
+
         # Refresh token once upfront; if it fails the connection is broken
         try:
             token = await self._refresh_token(db, user)
@@ -154,8 +179,6 @@ class FitbitService:
             "sleep_score": None,
             "sleep_efficiency": None,
         }
-
-        today = date if date else datetime.now().strftime("%Y-%m-%d")
 
         # Steps
         try:
@@ -206,7 +229,34 @@ class FitbitService:
         except Exception as e:
             print(f"Fitbit sleep error: {e}")
 
+        # Persist to DB so next request can serve from cache
+        await self._save_today_stats(db, user.id, today, stats)
+
         return stats
+
+    async def _save_today_stats(self, db: AsyncSession, user_id: str, date: str, stats: Dict[str, Any]):
+        stmt = select(HealthMetric).where(
+            HealthMetric.user_id == user_id,
+            HealthMetric.date == date,
+        )
+        result = await db.execute(stmt)
+        metric = result.scalars().first()
+        if not metric:
+            metric = HealthMetric(user_id=user_id, date=date)
+            db.add(metric)
+        metric.steps = stats.get("steps")
+        metric.resting_hr = stats.get("resting_hr")
+        metric.weight_kg = stats.get("weight_kg")
+        metric.body_fat_pct = stats.get("body_fat_pct")
+        metric.sleep_duration_seconds = stats.get("sleep_duration_seconds")
+        metric.sleep_score = stats.get("sleep_score")
+        metric.sleep_efficiency = stats.get("sleep_efficiency")
+        metric.fitbit_synced_at = datetime.now()
+        db.add(metric)
+        try:
+            await db.commit()
+        except Exception as e:
+            print(f"Fitbit stats cache save error: {e}")
 
     async def sync_session_metrics(self, db: AsyncSession, session: TrainingSession, user: User):
         if not user.fitbit_access_token:
