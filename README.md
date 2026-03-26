@@ -1,6 +1,6 @@
 # Workout Tracker
 
-A full-stack workout tracking app with training cycle management, session logging, exercise progression, and Fitbit integration.
+A full-stack workout tracking app with training cycle management, session logging, exercise progression, data analytics, and Fitbit integration.
 
 **Production:** https://workout-production-cb80.up.railway.app
 
@@ -10,7 +10,7 @@ A full-stack workout tracking app with training cycle management, session loggin
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 15 (App Router), TypeScript, Tailwind CSS, shadcn/ui |
+| Frontend | Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui, Recharts |
 | Backend | FastAPI, SQLAlchemy (async), asyncpg |
 | Database | PostgreSQL (Railway) / SQLite (local dev) |
 | Auth | JWT via `httpOnly` cookies, bcrypt, rate limiting |
@@ -23,11 +23,13 @@ A full-stack workout tracking app with training cycle management, session loggin
 
 - **Training cycles** — Meso/micro cycle planning with goal tracking (Strength, Hypertrophy, Endurance)
 - **Sessions** — Create, log, and complete workouts with real-time set tracking and rest timers
-- **Exercise history** — Per-exercise progression view
-- **Plans** — Reusable workout templates you can apply to sessions
+- **Session analytics** — Volume/session-count chart (8W / 6M / 1Y), stats strip, muscle group suggestions, month navigator
+- **Exercise history** — Per-exercise progression view with set-by-set breakdown
+- **Plans** — Reusable workout templates (including 12-week Powerbuilding Phase 2) you can apply to sessions
 - **Suggestions** — RPE-based weight recommendations and volume analysis by muscle group
-- **Fitbit** — Sync steps, heart rate, sleep, and weight; today's stats on dashboard
+- **Fitbit** — Sync steps, heart rate, sleep, and weight; today's stats on dashboard and sessions page
 - **Auth** — Secure JWT login/register with rate limiting and OWASP-compliant password rules
+- **Data import** — Bulk import workout history from the Strong app via CSV (`seed_all.py`)
 
 ---
 
@@ -306,6 +308,35 @@ workout/
 3. Go to Settings → Connect Fitbit
 
 Tokens are automatically refreshed when within 5 minutes of expiry.
+
+---
+
+## Database Seeding
+
+`seed_all.py` is a one-shot script that:
+1. Finds (or creates) the user by `SEED_EMAIL`
+2. Seeds all powerbuilding exercises
+3. Creates the full **12-week Powerbuilding Phase 2** plan (48 sessions)
+4. Imports a **Strong app CSV export** as completed training sessions
+
+```bash
+cd backend
+source venv/bin/activate
+
+# Seed local SQLite
+python seed_all.py
+
+# Seed Railway production
+DATABASE_URL="postgresql+asyncpg://user:pass@host/db" \
+SEED_EMAIL="you@example.com" \
+python seed_all.py
+```
+
+The script is idempotent — re-running skips already-existing sessions and plans.
+
+### Strong CSV format
+
+Export from the Strong app (Settings → Export Data) and place the file at `backend/strong_workouts.csv`. Columns used: `Date`, `Workout Name`, `Exercise Name`, `Set Order`, `Weight`, `Reps`, `RPE`.
 
 ---
 
