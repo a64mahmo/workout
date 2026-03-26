@@ -14,7 +14,7 @@ load_dotenv()
 
 FITBIT_CLIENT_ID = os.getenv("FITBIT_CLIENT_ID")
 FITBIT_CLIENT_SECRET = os.getenv("FITBIT_CLIENT_SECRET")
-FITBIT_REDIRECT_URI = os.getenv("FITBIT_REDIRECT_URI", "http://localhost:3000/settings/fitbit/callback")
+FITBIT_REDIRECT_URI = os.getenv("FITBIT_REDIRECT_URI")
 
 class FitbitService:
     def __init__(self):
@@ -54,8 +54,10 @@ class FitbitService:
             user.fitbit_refresh_token = token_data["refresh_token"]
             user.fitbit_user_id = token_data["user_id"]
             user.fitbit_token_expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
-            
+
+            db.add(user)
             await db.commit()
+            await db.refresh(user)
             return token_data
 
     async def _refresh_token(self, db: AsyncSession, user: User) -> str:
@@ -82,8 +84,8 @@ class FitbitService:
             user.fitbit_refresh_token = token_data["refresh_token"]
             user.fitbit_token_expires_at = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
 
+            db.add(user)
             await db.commit()
-            # Save token to local var before commit expires the ORM instance
             return new_access_token
 
     async def get_heart_rate(self, db: AsyncSession, user: User, date_str: str) -> Dict[str, Any]:
