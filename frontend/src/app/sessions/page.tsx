@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -63,6 +64,20 @@ function fmtVol(v: number): string {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
   return `${Math.round(v)}`;
+}
+
+// Resolved chart colours per theme — SVG fill doesn't support CSS vars
+function useChartColors() {
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
+  return {
+    barActive:   dark ? '#f97316' : '#ea580c',   // orange-500 / orange-600
+    barInactive: dark ? '#431407' : '#fed7aa',   // orange-950 / orange-200
+    axisText:    dark ? '#9ca3af' : '#6b7280',   // gray-400 / gray-500
+    cursor:      dark ? '#292524' : '#fef3c7',   // stone-800 / amber-100
+    tooltipBg:   dark ? '#1c1917' : '#ffffff',
+    tooltipBorder: dark ? '#44403c' : '#e7e5e4',
+  };
 }
 
 const MUSCLE_COLOR: Record<string, string> = {
@@ -266,7 +281,10 @@ function useSuggestions(sessions: TrainingSession[] | undefined) {
 // Custom chart tooltip
 // ---------------------------------------------------------------------------
 
-function makeChartTooltip(metric: Metric) {
+function makeChartTooltip(
+  metric: Metric,
+  colors: { tooltipBg: string; tooltipBorder: string; axisText: string },
+) {
   // eslint-disable-next-line react/display-name
   return function ChartTooltipInner(props: Record<string, unknown>) {
     const active = props.active as boolean | undefined;
@@ -275,9 +293,18 @@ function makeChartTooltip(metric: Metric) {
     if (!active || !payload?.length) return null;
     const val = payload[0].value;
     return (
-      <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-lg text-sm">
-        <p className="font-semibold text-xs text-muted-foreground mb-0.5">{label}</p>
-        <p className="font-bold">
+      <div
+        style={{
+          background: colors.tooltipBg,
+          border: `1px solid ${colors.tooltipBorder}`,
+          borderRadius: 8,
+          padding: '8px 12px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          fontSize: 13,
+        }}
+      >
+        <p style={{ color: colors.axisText, fontSize: 11, marginBottom: 2 }}>{label}</p>
+        <p style={{ fontWeight: 700 }}>
           {metric === 'volume' ? `${fmtVol(val)} lbs` : `${val} sessions`}
         </p>
       </div>
@@ -432,6 +459,7 @@ function SessionCard({
 export default function SessionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const chartColors = useChartColors();
 
   // New session dialog
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -770,20 +798,20 @@ export default function SessionsPage() {
                     dataKey="label"
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 11, fill: chartColors.axisText }}
                   />
                   <YAxis
                     axisLine={false}
                     tickLine={false}
-                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 11, fill: chartColors.axisText }}
                     tickFormatter={(v) =>
                       metric === 'volume' ? fmtVol(v) : String(v)
                     }
                     width={48}
                   />
                   <Tooltip
-                    content={makeChartTooltip(metric)}
-                    cursor={{ fill: 'hsl(var(--muted))', radius: 4 }}
+                    content={makeChartTooltip(metric, chartColors)}
+                    cursor={{ fill: chartColors.cursor, radius: 4 }}
                   />
                   <Bar
                     dataKey={metric}
@@ -795,8 +823,8 @@ export default function SessionsPage() {
                         key={i}
                         fill={
                           entry.current
-                            ? 'hsl(var(--primary))'
-                            : 'hsl(var(--primary) / 0.4)'
+                            ? chartColors.barActive
+                            : chartColors.barInactive
                         }
                       />
                     ))}
