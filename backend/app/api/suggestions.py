@@ -13,33 +13,36 @@ router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 @router.get("/exercises")
 async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
     async with async_session() as session:
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        
         result = await session.execute(
             select(
                 Exercise.id,
                 Exercise.name,
                 Exercise.muscle_group,
-                func.coalesce(func.sum(VolumeHistory.total_volume), 0).label("volume")
+                func.coalesce(func.sum(VolumeHistory.total_volume), 0).label("volume"),
+                func.max(VolumeHistory.calculated_at).label("last_performed"),
             )
-            .outerjoin(VolumeHistory, Exercise.id == VolumeHistory.exercise_id)
+            .outerjoin(
+                VolumeHistory,
+                (Exercise.id == VolumeHistory.exercise_id) &
+                (VolumeHistory.user_id == user_id)
+            )
             .group_by(Exercise.id)
+            .having(func.coalesce(func.sum(VolumeHistory.total_volume), 0) > 0)
+            .order_by(func.coalesce(func.sum(VolumeHistory.total_volume), 0).desc())
         )
-        
+
         exercises = result.all()
         suggestions = []
-        
+
         for ex in exercises:
             volume = float(ex.volume)
-            if volume > 10000:
-                suggestion_reason = "High volume - maintain current intensity"
-            elif volume >= 5000:
-                suggestion_reason = "Moderate volume - consider progression"
-            elif volume > 0:
-                suggestion_reason = "Low volume - good for adding volume"
+            if volume > 50000:
+                suggestion_reason = "High volume — maintain intensity"
+            elif volume >= 10000:
+                suggestion_reason = "Moderate volume — consider progression"
             else:
-                suggestion_reason = "New exercise - start with light weight"
-            
+                suggestion_reason = "Lower volume — good candidate for more work"
+
             suggestions.append({
                 "exercise": {
                     "id": ex.id,
@@ -49,9 +52,10 @@ async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
                     "created_at": None
                 },
                 "total_volume": volume,
+                "last_performed": ex.last_performed.isoformat() if ex.last_performed else None,
                 "suggestion_reason": suggestion_reason
             })
-        
+
         return suggestions
 
 @router.get("/weight")
@@ -69,33 +73,44 @@ async def suggest_weight(user_id: str = Depends(get_current_user_id), exercise_i
             .limit(50)
         )
         
-        sets = result.all()
-        
-        if not sets:
-            return {"suggestion": "No history - start light", "percentage": 100}
-        
-        weights = [float(s.weight) for s in sets if s.weight]
+        rows = result.all()
+
+        if not rows:
+            return {
+                "average_weight": 0,
+                "suggested_weight": 0,
+                "average_rpe": None,
+                "suggestion": "No history — start light and build up",
+                "adjustment_reason": "No history — start light and build up",
+                "percentage": 100,
+            }
+
+        weights = [float(r[0].weight) for r in rows if r[0].weight]
         avg_weight = sum(weights) / len(weights) if weights else 0
-        
-        rpes = [float(s.rpe) for s in sets if s.rpe]
-        avg_rpe = sum(rpes) / len(rpes) if rpes else 5
-        
-        if avg_rpe > 8:
-            suggestion = "Deload - reduce weight by 40%"
+
+        rpes = [float(r[0].rpe) for r in rows if r[0].rpe]
+        avg_rpe = sum(rpes) / len(rpes) if rpes else None
+
+        if avg_rpe and avg_rpe > 8:
+            suggestion = "Deload — reduce weight by 40%"
             percentage = 60
-        elif avg_rpe > 7:
-            suggestion = "Recovery - reduce weight by 15%"
+        elif avg_rpe and avg_rpe > 7:
+            suggestion = "Recovery — reduce weight by 15%"
             percentage = 85
         else:
-            suggestion = "Progression - increase weight by 2.5%"
+            suggestion = "Progression — increase weight by 2.5%"
             percentage = 102.5
-        
+
+        suggested = round(avg_weight * percentage / 100, 1)
+
         return {
             "average_weight": round(avg_weight, 1),
-            "suggested_weight": round(avg_weight * percentage / 100, 1),
-            "average_rpe": round(avg_rpe, 1),
+            "previous_weight": round(avg_weight, 1),
+            "suggested_weight": round(suggested, 1),
+            "average_rpe": round(avg_rpe, 1) if avg_rpe else None,
             "suggestion": suggestion,
-            "percentage": percentage
+            "adjustment_reason": suggestion,
+            "percentage": percentage,
         }
 
 @router.get("/muscle-groups")
@@ -116,6 +131,6 @@ async def volume_by_muscle_group(user_id: str = Depends(get_current_user_id)):
         groups = result.all()
         
         return {
-            g.muscle_group: f"{int(g.volume)} lbs total"
+            g.muscle_group: int(g.volume)
             for g in groups
         }
