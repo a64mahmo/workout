@@ -213,7 +213,7 @@ function SessionCard({
   const muscleGroups = useMemo(() => sessionMuscleGroups(session), [session]);
   const exerciseCount = session.exercises?.length ?? 0;
 
-  const { dayNum, monthStr } = useMemo(() => {
+  const { dayNum, monthStr, yearStr } = useMemo(() => {
     try {
       const d = parseISO(
         (session.actual_date || session.scheduled_date) + 'T00:00:00',
@@ -221,9 +221,10 @@ function SessionCard({
       return {
         dayNum: format(d, 'd'),
         monthStr: format(d, 'MMM'),
+        yearStr: format(d, 'yyyy'),
       };
     } catch {
-      return { dayNum: '--', monthStr: '---' };
+      return { dayNum: '--', monthStr: '---', yearStr: '----' };
     }
   }, [session.actual_date, session.scheduled_date]);
 
@@ -253,6 +254,9 @@ function SessionCard({
           <div className="text-xl font-bold leading-none tabular-nums">{dayNum}</div>
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
             {monthStr}
+          </div>
+          <div className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
+            {yearStr}
           </div>
         </div>
 

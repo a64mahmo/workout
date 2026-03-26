@@ -22,6 +22,7 @@ import {
   format, parseISO, differenceInDays,
   startOfWeek, subWeeks, isWithinInterval, endOfWeek,
   subMonths, startOfMonth, endOfMonth, isSameMonth, isSameYear,
+  getMonth, getYear, eachWeekOfInterval, eachMonthOfInterval,
 } from 'date-fns';
 
 // ---------------------------------------------------------------------------
@@ -38,7 +39,7 @@ interface WeightSuggestion {
   percentage: number;
 }
 
-type Period = '8W' | '6M' | '1Y';
+type Period = '8W' | '6M' | '1Y' | 'custom';
 type Metric = 'volume' | 'sessions';
 
 // ---------------------------------------------------------------------------
@@ -146,17 +147,86 @@ function MuscleTooltip(colors: ReturnType<typeof useChartColors>) {
 // Volume over time chart data
 // ---------------------------------------------------------------------------
 
+function weekLabel(date: Date, prevYear: number | null): string {
+  const y = getYear(date);
+  const base = format(date, 'MMM d');
+  return (prevYear !== null && y !== prevYear) ? `${base} '${String(y).slice(2)}` : base;
+}
+
+function monthLabel(date: Date, prevYear: number | null): string {
+  const y = getYear(date);
+  const base = format(date, 'MMM');
+  return (prevYear === null || y !== prevYear) ? `${base} '${String(y).slice(2)}` : base;
+}
+
 function useChartData(
   sessions: TrainingSession[] | undefined,
   period: Period,
   metric: Metric,
+  customRange?: { from?: Date; to?: Date },
 ) {
   return useMemo(() => {
     if (!sessions) return [];
     const completed = sessions.filter((s) => s.status === 'completed');
 
+    if (period === 'custom') {
+      const from = customRange?.from;
+      const to   = customRange?.to ?? new Date();
+      if (!from) return [];
+      const rangeDays = differenceInDays(to, from);
+      const now = new Date();
+
+      if (rangeDays <= 84) {
+        // Weekly buckets
+        const weeks = eachWeekOfInterval({ start: from, end: to }, { weekStartsOn: 1 });
+        let prevYear: number | null = null;
+        return weeks.map((weekStart) => {
+          const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
+          const bucket = completed.filter((s) => {
+            try {
+              const d = parseISO(s.scheduled_date + 'T00:00:00');
+              return isWithinInterval(d, { start: weekStart, end: weekEnd });
+            } catch { return false; }
+          });
+          const y = getYear(weekStart);
+          const label = weekLabel(weekStart, prevYear);
+          prevYear = y;
+          return {
+            label,
+            volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
+            sessions: bucket.length,
+            current: isSameMonth(weekStart, now) && isSameYear(weekStart, now),
+          };
+        });
+      } else {
+        // Monthly buckets
+        const months = eachMonthOfInterval({ start: from, end: to });
+        let prevYear: number | null = null;
+        return months.map((mo) => {
+          const start = startOfMonth(mo);
+          const end = endOfMonth(mo);
+          const bucket = completed.filter((s) => {
+            try {
+              const d = parseISO(s.scheduled_date + 'T00:00:00');
+              return isWithinInterval(d, { start, end });
+            } catch { return false; }
+          });
+          const y = getYear(mo);
+          const label = monthLabel(mo, prevYear);
+          prevYear = y;
+          return {
+            label,
+            volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
+            sessions: bucket.length,
+            current: isSameMonth(mo, now) && isSameYear(mo, now),
+          };
+        });
+      }
+    }
+
     if (period === '8W') {
       const now = new Date();
+      let prevYear: number | null = null;
       return Array.from({ length: 8 }, (_, i) => {
         const weekStart = startOfWeek(subWeeks(now, 7 - i), { weekStartsOn: 1 });
         const weekEnd   = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -166,8 +236,11 @@ function useChartData(
             return isWithinInterval(d, { start: weekStart, end: weekEnd });
           } catch { return false; }
         });
+        const y = getYear(weekStart);
+        const label = weekLabel(weekStart, prevYear);
+        prevYear = y;
         return {
-          label: format(weekStart, 'MMM d'),
+          label,
           volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
           sessions: bucket.length,
           current: i === 7,
@@ -177,6 +250,7 @@ function useChartData(
 
     const monthCount = period === '6M' ? 6 : 12;
     const now = new Date();
+    let prevYear: number | null = null;
     return Array.from({ length: monthCount }, (_, i) => {
       const mo    = subMonths(now, monthCount - 1 - i);
       const start = startOfMonth(mo);
@@ -187,14 +261,17 @@ function useChartData(
           return isWithinInterval(d, { start, end });
         } catch { return false; }
       });
+      const y = getYear(mo);
+      const label = monthLabel(mo, prevYear);
+      prevYear = y;
       return {
-        label: format(mo, 'MMM'),
+        label,
         volume: bucket.reduce((t, s) => t + sessionVolume(s), 0),
         sessions: bucket.length,
         current: isSameMonth(mo, now) && isSameYear(mo, now),
       };
     });
-  }, [sessions, period, metric]);
+  }, [sessions, period, metric, customRange]);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +323,17 @@ export default function SuggestionsPage() {
   const [showAll, setShowAll] = useState(false);
   const [period, setPeriod] = useState<Period>('8W');
   const [metric, setMetric] = useState<Metric>('volume');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const chartColors = useChartColors();
+
+  const customRange = useMemo(() => {
+    if (!customFrom) return undefined;
+    return {
+      from: new Date(customFrom + 'T00:00:00'),
+      to: customTo ? new Date(customTo + 'T00:00:00') : new Date(),
+    };
+  }, [customFrom, customTo]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: exerciseSuggestions = [], isLoading: loadingEx } = useQuery({
@@ -284,7 +371,7 @@ export default function SuggestionsPage() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const { thisWeek, lastWeek } = useWeeklyVolumeByMuscle(sessions);
-  const chartData = useChartData(sessions, period, metric);
+  const chartData = useChartData(sessions, period, metric, customRange);
 
   // Muscle group chart data (sorted by volume desc)
   const muscleChartData = useMemo(() => {
@@ -382,7 +469,7 @@ export default function SuggestionsPage() {
               </div>
               {/* Period toggle */}
               <div className="flex rounded-lg overflow-hidden border border-border text-xs">
-                {(['8W', '6M', '1Y'] as Period[]).map((p) => (
+                {(['8W', '6M', '1Y', 'custom'] as Period[]).map((p) => (
                   <button
                     key={p}
                     onClick={() => setPeriod(p)}
@@ -392,17 +479,40 @@ export default function SuggestionsPage() {
                         : 'text-muted-foreground hover:bg-muted'
                     }`}
                   >
-                    {p}
+                    {p === 'custom' ? 'Custom' : p}
                   </button>
                 ))}
               </div>
             </div>
           </div>
 
+          {period === 'custom' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-muted-foreground">From</label>
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={e => setCustomFrom(e.target.value)}
+                  className="text-xs rounded-lg border border-border bg-background px-2 py-1.5 tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-muted-foreground">To</label>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={e => setCustomTo(e.target.value)}
+                  className="text-xs rounded-lg border border-border bg-background px-2 py-1.5 tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+          )}
+
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
               data={chartData}
-              margin={{ top: 4, right: 0, left: -20, bottom: 0 }}
+              margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
               barCategoryGap="30%"
             >
               <CartesianGrid
@@ -421,7 +531,7 @@ export default function SuggestionsPage() {
                 tickLine={false}
                 tick={{ fontSize: 11, fill: chartColors.axisText }}
                 tickFormatter={(v) => metric === 'volume' ? fmtVol(v) : String(v)}
-                width={48}
+                width={52}
               />
               <Tooltip
                 content={makeChartTooltip(metric, chartColors)}
@@ -437,9 +547,11 @@ export default function SuggestionsPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-          <p className="text-[11px] text-muted-foreground">
-            Highlighted bar = current {period === '8W' ? 'week' : 'month'}
-          </p>
+          {period !== 'custom' && (
+            <p className="text-[11px] text-muted-foreground">
+              Highlighted bar = current {period === '8W' ? 'week' : 'month'}
+            </p>
+          )}
         </section>
       )}
 
