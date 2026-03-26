@@ -153,7 +153,7 @@ class FitbitService:
             "sleep_efficiency": None,
         }
 
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
 
         # Steps
         try:
