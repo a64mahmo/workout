@@ -137,31 +137,36 @@ class FitbitService:
             response.raise_for_status()
             return response.json()
 
+    def _metric_to_stats(self, cached: "HealthMetric") -> Dict[str, Any]:
+        return {
+            "connected": True,
+            "steps": cached.steps,
+            "resting_hr": cached.resting_hr,
+            "weight_kg": cached.weight_kg,
+            "body_fat_pct": cached.body_fat_pct,
+            "sleep_duration_seconds": cached.sleep_duration_seconds,
+            "sleep_score": cached.sleep_score,
+            "sleep_efficiency": cached.sleep_efficiency,
+        }
+
+    async def _get_cached_metric(self, db: AsyncSession, user_id: str, today: str) -> Optional["HealthMetric"]:
+        stmt = select(HealthMetric).where(
+            HealthMetric.user_id == user_id,
+            HealthMetric.date == today,
+            HealthMetric.fitbit_synced_at.isnot(None),
+        )
+        result = await db.execute(stmt)
+        return result.scalars().first()
+
     async def get_today_stats(self, db: AsyncSession, user: User, date: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
         today = date if date else datetime.now().strftime("%Y-%m-%d")
 
         # Return from DB cache if fresh (< 3 hours) and not a forced sync
-        if not force:
-            stmt = select(HealthMetric).where(
-                HealthMetric.user_id == user.id,
-                HealthMetric.date == today,
-                HealthMetric.fitbit_synced_at.isnot(None),
-            )
-            result = await db.execute(stmt)
-            cached = result.scalars().first()
-            if cached and cached.fitbit_synced_at:
-                age_seconds = (datetime.now() - cached.fitbit_synced_at).total_seconds()
-                if age_seconds < 3 * 3600:
-                    return {
-                        "connected": True,
-                        "steps": cached.steps,
-                        "resting_hr": cached.resting_hr,
-                        "weight_kg": cached.weight_kg,
-                        "body_fat_pct": cached.body_fat_pct,
-                        "sleep_duration_seconds": cached.sleep_duration_seconds,
-                        "sleep_score": cached.sleep_score,
-                        "sleep_efficiency": cached.sleep_efficiency,
-                    }
+        cached = await self._get_cached_metric(db, user.id, today)
+        if not force and cached and cached.fitbit_synced_at:
+            age_seconds = (datetime.now() - cached.fitbit_synced_at).total_seconds()
+            if age_seconds < 3 * 3600:
+                return self._metric_to_stats(cached)
 
         # Refresh token once upfront; if it fails the connection is broken
         try:
@@ -248,13 +253,21 @@ class FitbitService:
         except Exception as e:
             print(f"Fitbit sleep error: {e}")
 
-        # Only cache if no rate limits hit — prevents locking out null values for 3h
-        if not rate_limited:
+        if rate_limited:
+            # Return stale cache rather than nulls; if none exists save a 5-min retry placeholder
+            if cached:
+                return self._metric_to_stats(cached)
+            # No prior cache — save placeholder so we don't hammer the API every request
+            await self._save_today_stats(
+                db, user.id, today, stats,
+                synced_at=datetime.now() - timedelta(hours=2, minutes=55),  # 5-min TTL
+            )
+        else:
             await self._save_today_stats(db, user.id, today, stats)
 
         return stats
 
-    async def _save_today_stats(self, db: AsyncSession, user_id: str, date: str, stats: Dict[str, Any]):
+    async def _save_today_stats(self, db: AsyncSession, user_id: str, date: str, stats: Dict[str, Any], synced_at: Optional[datetime] = None):
         stmt = select(HealthMetric).where(
             HealthMetric.user_id == user_id,
             HealthMetric.date == date,
@@ -271,7 +284,7 @@ class FitbitService:
         metric.sleep_duration_seconds = stats.get("sleep_duration_seconds")
         metric.sleep_score = stats.get("sleep_score")
         metric.sleep_efficiency = stats.get("sleep_efficiency")
-        metric.fitbit_synced_at = datetime.now()
+        metric.fitbit_synced_at = synced_at if synced_at is not None else datetime.now()
         db.add(metric)
         try:
             await db.commit()
