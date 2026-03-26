@@ -53,8 +53,9 @@ export default function Dashboard() {
         sleep_score: number | null;
       };
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
     refetchInterval: 5 * 60 * 1000,
+    retry: false,
   });
 
   const activeCycle = cycles?.find((c) => c.is_active);
@@ -166,6 +167,17 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-4">
 
       {/* Fitbit Today */}
+      {fitbitStats?.connected === false && fitbitStats !== undefined && (
+        <div className="col-span-2 rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Activity className="size-4" />
+            Fitbit token expired — reconnect to see today&apos;s stats
+          </div>
+          <Button variant="outline" size="sm" onClick={() => router.push('/settings')}>
+            Reconnect
+          </Button>
+        </div>
+      )}
       {fitbitStats?.connected && (
         <div className="col-span-2">
           <div className="flex items-center gap-2 mb-3">

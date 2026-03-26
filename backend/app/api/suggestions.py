@@ -1,34 +1,41 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from datetime import datetime, timedelta
 from typing import List, Dict
 from ..database import async_session
-from ..models import Exercise, VolumeHistory, TrainingSession, SessionExercise, ExerciseSet
-from ..schemas import ExerciseResponse
+from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet
 from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
+
 @router.get("/exercises")
 async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
+    """
+    Return exercises the user has trained, ranked by total all-time volume.
+    Computed directly from ExerciseSet so it works even without VolumeHistory.
+    """
     async with async_session() as session:
         result = await session.execute(
             select(
                 Exercise.id,
                 Exercise.name,
                 Exercise.muscle_group,
-                func.coalesce(func.sum(VolumeHistory.total_volume), 0).label("volume"),
-                func.max(VolumeHistory.calculated_at).label("last_performed"),
+                func.sum(ExerciseSet.reps * ExerciseSet.weight).label("volume"),
+                func.max(TrainingSession.scheduled_date).label("last_performed"),
             )
-            .outerjoin(
-                VolumeHistory,
-                (Exercise.id == VolumeHistory.exercise_id) &
-                (VolumeHistory.user_id == user_id)
-            )
-            .group_by(Exercise.id)
-            .having(func.coalesce(func.sum(VolumeHistory.total_volume), 0) > 0)
-            .order_by(func.coalesce(func.sum(VolumeHistory.total_volume), 0).desc())
+            .join(SessionExercise, Exercise.id == SessionExercise.exercise_id)
+            .join(TrainingSession, SessionExercise.session_id == TrainingSession.id)
+            .join(ExerciseSet, ExerciseSet.session_exercise_id == SessionExercise.id)
+            .where(TrainingSession.user_id == user_id)
+            .where(TrainingSession.status == "completed")
+            .where(ExerciseSet.is_completed == True)
+            .where(ExerciseSet.is_warmup == False)
+            .where(ExerciseSet.weight != None)
+            .where(ExerciseSet.reps != None)
+            .group_by(Exercise.id, Exercise.name, Exercise.muscle_group)
+            .having(func.sum(ExerciseSet.reps * ExerciseSet.weight) > 0)
+            .order_by(func.sum(ExerciseSet.reps * ExerciseSet.weight).desc())
         )
 
         exercises = result.all()
@@ -52,14 +59,18 @@ async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
                     "created_at": None
                 },
                 "total_volume": volume,
-                "last_performed": ex.last_performed.isoformat() if ex.last_performed else None,
+                "last_performed": ex.last_performed if ex.last_performed else None,
                 "suggestion_reason": suggestion_reason
             })
 
         return suggestions
 
+
 @router.get("/weight")
-async def suggest_weight(user_id: str = Depends(get_current_user_id), exercise_id: str = Query(...)):
+async def suggest_weight(
+    user_id: str = Depends(get_current_user_id),
+    exercise_id: str = Query(...),
+):
     async with async_session() as session:
         result = await session.execute(
             select(ExerciseSet, TrainingSession)
@@ -67,17 +78,20 @@ async def suggest_weight(user_id: str = Depends(get_current_user_id), exercise_i
             .join(TrainingSession, SessionExercise.session_id == TrainingSession.id)
             .where(SessionExercise.exercise_id == exercise_id)
             .where(TrainingSession.user_id == user_id)
+            .where(TrainingSession.status == "completed")
             .where(ExerciseSet.is_completed == True)
             .where(ExerciseSet.is_warmup == False)
-            .order_by(TrainingSession.actual_date.desc())
+            .where(ExerciseSet.weight != None)
+            .order_by(TrainingSession.scheduled_date.desc())
             .limit(50)
         )
-        
+
         rows = result.all()
 
         if not rows:
             return {
                 "average_weight": 0,
+                "previous_weight": 0,
                 "suggested_weight": 0,
                 "average_rpe": None,
                 "suggestion": "No history — start light and build up",
@@ -113,24 +127,33 @@ async def suggest_weight(user_id: str = Depends(get_current_user_id), exercise_i
             "percentage": percentage,
         }
 
+
 @router.get("/muscle-groups")
 async def volume_by_muscle_group(user_id: str = Depends(get_current_user_id)):
+    """
+    All-time volume per muscle group, computed directly from ExerciseSet.
+    """
     async with async_session() as session:
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        
         result = await session.execute(
             select(
                 Exercise.muscle_group,
-                func.coalesce(func.sum(VolumeHistory.total_volume), 0).label("volume")
+                func.sum(ExerciseSet.reps * ExerciseSet.weight).label("volume"),
             )
-            .join(VolumeHistory, Exercise.id == VolumeHistory.exercise_id)
-            .where(VolumeHistory.user_id == user_id)
+            .join(SessionExercise, Exercise.id == SessionExercise.exercise_id)
+            .join(TrainingSession, SessionExercise.session_id == TrainingSession.id)
+            .join(ExerciseSet, ExerciseSet.session_exercise_id == SessionExercise.id)
+            .where(TrainingSession.user_id == user_id)
+            .where(TrainingSession.status == "completed")
+            .where(ExerciseSet.is_completed == True)
+            .where(ExerciseSet.weight != None)
+            .where(ExerciseSet.reps != None)
             .group_by(Exercise.muscle_group)
         )
-        
+
         groups = result.all()
-        
+
         return {
             g.muscle_group: int(g.volume)
             for g in groups
+            if g.volume and g.volume > 0
         }
