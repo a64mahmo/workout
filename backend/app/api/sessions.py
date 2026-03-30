@@ -265,8 +265,16 @@ async def add_exercise_to_session(session_id: str, exercise: SessionExerciseCrea
     )
     db.add(new_se)
     await db.commit()
-    await db.refresh(new_se)
-    return new_se
+
+    result = await db.execute(
+        select(SessionExercise)
+        .options(
+            selectinload(SessionExercise.exercise),
+            selectinload(SessionExercise.sets),
+        )
+        .where(SessionExercise.id == new_se.id)
+    )
+    return result.scalar_one()
 
 @router.put("/session-exercises/{se_id}", response_model=SessionExerciseResponse)
 async def update_session_exercise(se_id: str, exercise: SessionExerciseUpdate, db: AsyncSession = Depends(get_db)):
