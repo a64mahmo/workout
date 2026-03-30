@@ -119,13 +119,23 @@ export default function PlansPage() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-              <Button
-                className="w-full"
-                onClick={() => createMutation.mutate()}
-                disabled={!name.trim() || createMutation.isPending}
-              >
-                {createMutation.isPending ? 'Creating…' : 'Create & Configure'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setCreateOpen(false); setName(''); setDescription(''); setMesoId(''); }}
+                  disabled={createMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => createMutation.mutate()}
+                  disabled={!name.trim() || createMutation.isPending}
+                >
+                  {createMutation.isPending ? 'Creating…' : 'Create'}
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

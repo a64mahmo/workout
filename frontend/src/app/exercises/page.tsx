@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import type { Exercise } from '@/types';
+import { Pencil } from 'lucide-react';
 
 import {
   Select,
@@ -24,7 +25,9 @@ export default function ExercisesPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [newExercise, setNewExercise] = useState({ name: '', muscle_group: '', description: '' });
+  const [newExercise, setNewExercise] = useState({ name: '', muscle_group: '', category: 'weighted', description: '' });
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [editFields, setEditFields] = useState({ name: '', muscle_group: '', category: 'weighted', description: '' });
   const queryClient = useQueryClient();
 
   const { data: exercises, isLoading } = useQuery({
@@ -44,7 +47,18 @@ export default function ExercisesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exercises'] });
       setIsDialogOpen(false);
-      setNewExercise({ name: '', muscle_group: '', description: '' });
+      setNewExercise({ name: '', muscle_group: '', category: 'weighted', description: '' });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: typeof editFields) => {
+      const res = await api.put(`/api/exercises/${editingExercise!.id}`, data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exercises'] });
+      setEditingExercise(null);
     },
   });
 
@@ -57,17 +71,26 @@ export default function ExercisesPage() {
     },
   });
 
-  const filteredExercises = exercises?.filter(e => 
+  const filteredExercises = exercises?.filter(e =>
     e.name.toLowerCase().includes(search.toLowerCase())
   ) || [];
 
   const handleCreate = () => {
-    console.log('handleCreate called for exercise with:', newExercise);
     if (newExercise.name && newExercise.muscle_group) {
       createMutation.mutate(newExercise);
     } else {
       alert('Please fill in Name and Muscle Group');
     }
+  };
+
+  const openEdit = (exercise: Exercise) => {
+    setEditingExercise(exercise);
+    setEditFields({
+      name: exercise.name,
+      muscle_group: exercise.muscle_group,
+      category: exercise.category ?? 'weighted',
+      description: exercise.description ?? '',
+    });
   };
 
   return (
@@ -97,6 +120,18 @@ export default function ExercisesPage() {
                   {muscleGroups.map(group => (
                     <SelectItem key={group} value={group}>{group}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={newExercise.category}
+                onValueChange={(value) => value && setNewExercise({ ...newExercise, category: value })}
+              >
+                <SelectTrigger className="w-full h-10">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="weighted">Weighted</SelectItem>
+                  <SelectItem value="bodyweight">Bodyweight</SelectItem>
                 </SelectContent>
               </Select>
               <Input
@@ -135,6 +170,65 @@ export default function ExercisesPage() {
         </Select>
       </div>
 
+      {/* Edit dialog */}
+      <Dialog open={!!editingExercise} onOpenChange={open => { if (!open) setEditingExercise(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Exercise</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Exercise name"
+              value={editFields.name}
+              onChange={e => setEditFields(f => ({ ...f, name: e.target.value }))}
+              autoFocus
+            />
+            <Select
+              value={editFields.muscle_group}
+              onValueChange={value => value && setEditFields(f => ({ ...f, muscle_group: value }))}
+            >
+              <SelectTrigger className="w-full h-10">
+                <SelectValue placeholder="Select muscle group" />
+              </SelectTrigger>
+              <SelectContent>
+                {muscleGroups.map(group => (
+                  <SelectItem key={group} value={group}>{group}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={editFields.category}
+              onValueChange={value => value && setEditFields(f => ({ ...f, category: value }))}
+            >
+              <SelectTrigger className="w-full h-10">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="weighted">Weighted</SelectItem>
+                <SelectItem value="bodyweight">Bodyweight</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Description (optional)"
+              value={editFields.description}
+              onChange={e => setEditFields(f => ({ ...f, description: e.target.value }))}
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEditingExercise(null)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => updateMutation.mutate(editFields)}
+                disabled={!editFields.name || !editFields.muscle_group || updateMutation.isPending}
+              >
+                {updateMutation.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {isLoading ? (
         <p>Loading...</p>
       ) : filteredExercises.length > 0 ? (
@@ -147,16 +241,24 @@ export default function ExercisesPage() {
               <CardContent>
                 <div className="flex justify-between items-center">
                   <Badge>{exercise.muscle_group}</Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteMutation.mutate(exercise.id)}
-                  >
-                    Delete
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(exercise)}>
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteMutation.mutate(exercise.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
                 {exercise.description && (
                   <p className="text-sm text-muted-foreground mt-2">{exercise.description}</p>
+                )}
+                {exercise.category && exercise.category !== 'weighted' && (
+                  <p className="text-xs text-muted-foreground mt-1 capitalize">{exercise.category}</p>
                 )}
               </CardContent>
             </Card>

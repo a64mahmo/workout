@@ -10,6 +10,7 @@ export interface Exercise {
   id: string;
   name: string;
   muscle_group: string;
+  category: string;
   description?: string;
   created_at: string;
 }
@@ -135,6 +136,7 @@ export interface WorkoutPlanSession {
   id: string;
   plan_id: string;
   name: string;
+  week_number: number;
   order_index: number;
   exercises: WorkoutPlanExercise[];
 }

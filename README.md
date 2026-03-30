@@ -25,8 +25,9 @@ A full-stack workout tracking app with training cycle management, session loggin
 - **Sessions** — Create, log, and complete workouts with real-time set tracking and rest timers
 - **Session analytics** — Volume/session-count chart (8W / 6M / 1Y), stats strip, muscle group suggestions, month navigator
 - **Exercise history** — Per-exercise progression view with set-by-set breakdown
-- **Plans** — Reusable workout templates (including 12-week Powerbuilding Phase 2) you can apply to sessions
-- **Suggestions** — RPE-based weight recommendations and volume analysis by muscle group
+- **Plans** — Reusable workout templates organised by weeks (Week 1 / Week 2 / ...) with draft-based editing — nothing commits to the database until you hit Save; bodyweight exercises hide weight fields throughout
+- **Exercises** — Global exercise library with muscle group and Weighted / Bodyweight category; inline edit dialog from the exercises page
+- **Suggestions** — RP-style weight algorithm using top-set reference, RPE-calibrated hypertrophy thresholds, and session-over-session progression; meso-cycle-aware to avoid data pollution across programs; every suggestion is logged per-user in `suggestion_logs`
 - **Fitbit** — Sync steps, heart rate, sleep, and weight; today's stats on dashboard and sessions page
 - **Auth** — Secure JWT login/register with rate limiting and OWASP-compliant password rules
 - **Data import** — Bulk import workout history from the Strong app via CSV (`seed_all.py`)
@@ -207,7 +208,9 @@ All endpoints except `/api/auth/register`, `/api/auth/login`, and `/api/health` 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/suggestions/exercises` | Exercise suggestions by volume |
-| GET | `/api/suggestions/weight` | Weight suggestion by RPE (`?exercise_id=`) |
+| GET | `/api/suggestions/weight` | RP-style weight suggestion (`?exercise_id=`, optional `?meso_cycle_id=`); auto-logs result |
+| GET | `/api/suggestions/weight/history` | Past suggestions per user (`?exercise_id=`, `?meso_cycle_id=`, `?limit=`) |
+| PATCH | `/api/suggestions/weight/history/{log_id}` | Record actual weight/reps/RPE against a suggestion |
 | GET | `/api/suggestions/muscle-groups` | Volume by muscle group |
 
 ### Fitbit (`/api/fitbit`)
@@ -240,8 +243,9 @@ exercise_sets          — sets per exercise (reps, weight, RPE)
 health_metrics         — Fitbit sleep/weight data per session
 volume_history         — calculated volume per exercise per session
 plans                  — reusable workout templates
-plan_sessions          — sessions within a plan
+plan_sessions          — sessions within a plan (grouped by week_number)
 plan_exercises         — exercises within a plan session
+suggestion_logs        — per-user weight suggestion history with optional outcome tracking
 ```
 
 ---
