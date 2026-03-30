@@ -37,13 +37,22 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Add new columns to existing tables (no-op if already present)
-        for stmt in [
-            "ALTER TABLE health_metrics ADD COLUMN steps INTEGER",
-            "ALTER TABLE health_metrics ADD COLUMN resting_hr INTEGER",
-            "ALTER TABLE health_metrics ADD COLUMN fitbit_synced_at TIMESTAMP",
-        ]:
-            try:
+
+    # Run each migration in its own transaction so a failure (column already
+    # exists) doesn't abort the rest — especially important for PostgreSQL.
+    migrations = [
+        "ALTER TABLE health_metrics ADD COLUMN steps INTEGER",
+        "ALTER TABLE health_metrics ADD COLUMN resting_hr INTEGER",
+        "ALTER TABLE health_metrics ADD COLUMN fitbit_synced_at TIMESTAMP",
+        "ALTER TABLE exercises ADD COLUMN category TEXT DEFAULT 'weighted'",
+        "ALTER TABLE plan_sessions ADD COLUMN week_number INTEGER DEFAULT 1",
+        "ALTER TABLE suggestion_logs ADD COLUMN actual_weight REAL",
+        "ALTER TABLE suggestion_logs ADD COLUMN actual_reps INTEGER",
+        "ALTER TABLE suggestion_logs ADD COLUMN actual_rpe REAL",
+    ]
+    for stmt in migrations:
+        try:
+            async with engine.begin() as conn:
                 await conn.execute(text(stmt))
-            except Exception:
-                pass  # Column already exists
+        except Exception:
+            pass  # Column already exists

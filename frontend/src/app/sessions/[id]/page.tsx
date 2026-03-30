@@ -69,7 +69,7 @@ interface HistorySet { set_number: number; reps: number; weight: number; rpe?: n
 interface HistoryEntry { session_date: string | null; session_name: string; sets: HistorySet[]; total_volume: number }
 interface RestState { active: boolean; remaining: number; total: number }
 
-// ── Rest Timer (floating) ─────────────────────────────────────────────────────
+// ── Rest Timer (full-width bottom bar) ───────────────────────────────────────
 function RestTimer({
   state,
   onAdjust,
@@ -81,54 +81,65 @@ function RestTimer({
 }) {
   const { remaining, total } = state;
   const pct = Math.max(0, (remaining / Math.max(total, 1)) * 100);
-  const circ = 2 * Math.PI * 18;
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
   const urgent = remaining <= 10 && remaining > 0;
+  const done = remaining === 0;
 
   return (
     <div className={cn(
-      'fixed bottom-20 left-1/2 -translate-x-1/2 z-50',
-      'flex items-center gap-3 px-4 py-3 min-w-[220px]',
-      'bg-background/95 backdrop-blur border border-border rounded-2xl shadow-xl',
+      'fixed bottom-0 inset-x-0 z-50',
+      'bg-background/98 backdrop-blur border-t shadow-[0_-8px_32px_rgba(0,0,0,0.12)]',
       'animate-in slide-in-from-bottom-4 duration-200',
-      urgent && 'border-destructive/50 bg-destructive/5',
+      urgent ? 'border-destructive/50' : 'border-border',
     )}>
-      {/* Countdown ring */}
-      <div className="relative size-11 shrink-0">
-        <svg className="size-11 -rotate-90" viewBox="0 0 44 44">
-          <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3"
-            stroke="currentColor" className="text-muted/25" />
-          <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3"
-            strokeDasharray={circ}
-            strokeDashoffset={circ * (1 - pct / 100)}
-            strokeLinecap="round"
-            stroke="currentColor"
-            className={urgent ? 'text-destructive' : 'text-primary'}
-          />
-        </svg>
-        <span className={cn('absolute inset-0 flex items-center justify-center font-bold tabular-nums',
-          remaining >= 60 ? 'text-xs' : 'text-sm',
-          urgent && 'text-destructive')}>
-          {mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : remaining}
-        </span>
+      {/* Progress bar */}
+      <div className="h-1 w-full bg-muted overflow-hidden">
+        <div
+          className={cn(
+            'h-full transition-[width] duration-1000 ease-linear',
+            done ? 'bg-emerald-500' : urgent ? 'bg-destructive' : 'bg-primary',
+          )}
+          style={{ width: `${pct}%` }}
+        />
       </div>
 
-      <div className="flex-1 space-y-1">
-        <p className="text-xs font-medium text-muted-foreground leading-none">Rest</p>
-        <div className="flex gap-1.5">
+      <div className="flex items-center gap-3 px-4 py-3">
+        {/* Label + countdown */}
+        <div className="flex flex-col items-center justify-center w-24 shrink-0">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Rest</span>
+          <span className={cn(
+            'text-4xl font-bold tabular-nums leading-none mt-0.5',
+            done ? 'text-emerald-500' : urgent ? 'text-destructive' : 'text-foreground',
+          )}>
+            {mins > 0
+              ? `${mins}:${String(secs).padStart(2, '0')}`
+              : `0:${String(remaining).padStart(2, '0')}`}
+          </span>
+        </div>
+
+        {/* Adjust buttons */}
+        <div className="flex-1 flex items-center justify-center gap-2">
           {[-30, -10, +10, +30].map(d => (
-            <button key={d} onClick={() => onAdjust(d)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-muted hover:bg-muted/70 tabular-nums transition-colors font-medium">
+            <button
+              key={d}
+              onClick={() => onAdjust(d)}
+              className="flex-1 h-11 rounded-xl bg-muted hover:bg-muted/70 text-sm font-semibold tabular-nums transition-colors"
+            >
               {d > 0 ? `+${d}` : d}s
             </button>
           ))}
         </div>
-      </div>
 
-      <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
-        <SkipForward className="size-4" />
-      </button>
+        {/* Skip */}
+        <button
+          onClick={onDismiss}
+          className="shrink-0 flex flex-col items-center gap-0.5 w-12 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <SkipForward className="size-5" />
+          <span className="text-[9px] font-semibold uppercase tracking-wide">Skip</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -199,8 +210,8 @@ function RestControl({
 }
 
 // ── History panel ─────────────────────────────────────────────────────────────
-function ExerciseHistoryPanel({ exerciseId, open }: {
-  exerciseId: string; open: boolean;
+function ExerciseHistoryPanel({ exerciseId, open, isBodyweight = false }: {
+  exerciseId: string; open: boolean; isBodyweight?: boolean;
 }) {
   const { data, isLoading } = useQuery<HistoryEntry[]>({
     queryKey: ['exercise-history', exerciseId],
@@ -230,14 +241,16 @@ function ExerciseHistoryPanel({ exerciseId, open }: {
                 <span className="text-xs font-medium">
                   {entry.session_date ? format(new Date(entry.session_date + 'T00:00:00'), 'MMM d') : '—'}
                 </span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {entry.total_volume >= 1000 ? `${(entry.total_volume / 1000).toFixed(1)}k` : entry.total_volume} lbs
-                </span>
+                {!isBodyweight && (
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {entry.total_volume >= 1000 ? `${(entry.total_volume / 1000).toFixed(1)}k` : entry.total_volume} lbs
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap gap-1">
                 {entry.sets.map(s => (
                   <span key={s.set_number} className="text-xs bg-muted rounded px-1.5 py-0.5 tabular-nums">
-                    {s.reps}×{s.weight}{s.rpe ? <span className="text-muted-foreground ml-0.5">@{s.rpe}</span> : null}
+                    {isBodyweight ? `${s.reps} reps` : `${s.reps}×${s.weight}`}{s.rpe ? <span className="text-muted-foreground ml-0.5">@{s.rpe}</span> : null}
                   </span>
                 ))}
               </div>
@@ -261,6 +274,8 @@ function SetRow({
   isCompleting,
   isUnchecking,
   isEditable,
+  isBodyweight = false,
+  canComplete,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -272,6 +287,8 @@ function SetRow({
   isCompleting: boolean;
   isUnchecking: boolean;
   isEditable: boolean;
+  isBodyweight?: boolean;
+  canComplete?: boolean;
 }) {
   // Completed sets or non-editable → read-only view
   if (set.is_completed || !isEditable) {
@@ -298,7 +315,7 @@ function SetRow({
           {set.set_number}
         </span>
         <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
-          {set.reps} × {set.weight} lbs{set.rpe ? ` @ ${set.rpe}` : ''}
+          {set.reps} reps{!isBodyweight ? ` × ${set.weight} lbs` : ''}{set.rpe ? ` @ ${set.rpe}` : ''}
         </span>
         {isEditable && (
           <button onClick={onDelete}
@@ -318,7 +335,7 @@ function SetRow({
     )}>
       <button
         onClick={onComplete}
-        disabled={!editVal.reps || !editVal.weight || isCompleting}
+        disabled={!canComplete || isCompleting}
         className="shrink-0 text-muted-foreground/30 hover:text-primary disabled:opacity-30 transition-colors"
       >
         <Circle className="size-5" />
@@ -336,24 +353,26 @@ function SetRow({
           type="number" inputMode="numeric"
           value={editVal.reps}
           onChange={e => onEdit('reps', e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && editVal.reps && editVal.weight && onComplete()}
+          onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
           className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
           placeholder="—"
         />
         <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
       </div>
 
-      <div className="relative flex-1">
-        <Input
-          type="number" inputMode="decimal"
-          value={editVal.weight}
-          onChange={e => onEdit('weight', e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && editVal.reps && editVal.weight && onComplete()}
-          className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background')}
-          placeholder="—"
-        />
-        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
-      </div>
+      {!isBodyweight && (
+        <div className="relative flex-1">
+          <Input
+            type="number" inputMode="decimal"
+            value={editVal.weight}
+            onChange={e => onEdit('weight', e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
+            className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background')}
+            placeholder="—"
+          />
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
+        </div>
+      )}
 
       <div className="w-12 shrink-0">
         <Input
@@ -367,10 +386,10 @@ function SetRow({
 
       <button
         onClick={onComplete}
-        disabled={!editVal.reps || !editVal.weight || isCompleting}
+        disabled={!canComplete || isCompleting}
         className={cn(
           'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
-          editVal.reps && editVal.weight
+          canComplete
             ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95'
             : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
         )}
@@ -1050,14 +1069,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 </div>
 
                 {/* History panel */}
-                <ExerciseHistoryPanel exerciseId={se.exercise_id} open={historyOpen} />
+                <ExerciseHistoryPanel exerciseId={se.exercise_id} open={historyOpen} isBodyweight={se.exercise.category === 'bodyweight'} />
 
                 {/* Column headers */}
                 {se.sets.length > 0 && (
                   <div className="flex items-center gap-2 px-3 py-1 bg-muted/20 border-b border-border/10">
                     <span className="w-5 shrink-0" /><span className="w-5 shrink-0" />
                     <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Reps</span>
-                    <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Weight</span>
+                    {se.exercise.category !== 'bodyweight' && (
+                      <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Weight</span>
+                    )}
                     <span className="w-12 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">RPE</span>
                     <span className="w-9 shrink-0" />
                   </div>
@@ -1067,6 +1088,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 <div>
                   {se.sets.map(s => {
                     const edit = getEdit(s);
+                    const isBodyweight = se.exercise.category === 'bodyweight';
+                    const canComplete = isBodyweight ? !!edit.reps : (!!edit.reps && !!edit.weight);
                     return (
                       <SetRow
                         key={s.id}
@@ -1074,11 +1097,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         isActive={s.id === firstPendingId}
                         editVal={edit}
                         isEditable={isEditing}
+                        isBodyweight={isBodyweight}
                         onEdit={(field, val) => updateEdit(s.id, field, val)}
                         onComplete={() => {
                           const reps = parseInt(edit.reps);
-                          const weight = parseFloat(edit.weight);
-                          if (!reps || !weight) return;
+                          if (!reps) return;
+                          const weight = isBodyweight ? 0 : parseFloat(edit.weight);
+                          if (!isBodyweight && !weight) return;
                           completeSetMutation.mutate({
                             setId: s.id,
                             seId: se.id,
@@ -1098,6 +1123,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         onDelete={() => deleteSetMutation.mutate(s.id)}
                         isCompleting={completeSetMutation.isPending && completeSetMutation.variables?.setId === s.id}
                         isUnchecking={uncompleteSetMutation.isPending && uncompleteSetMutation.variables?.setId === s.id}
+                        canComplete={canComplete}
                       />
                     );
                   })}
@@ -1216,7 +1242,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                             {ov.include ? 'Include' : 'Skip'}
                           </button>
                         </div>
-                        {ov.include && (
+                        {ov.include && s.exercise.category !== 'bodyweight' && (
                           <div className="space-y-1">
                             <div className="relative">
                               <Input type="number" inputMode="decimal" value={ov.weight}

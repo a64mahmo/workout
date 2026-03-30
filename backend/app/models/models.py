@@ -27,10 +27,11 @@ class User(Base):
 
 class Exercise(Base):
     __tablename__ = "exercises"
-    
+
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False, index=True)
     muscle_group = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=False, default='weighted', server_default='weighted')
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -174,16 +175,44 @@ class Plan(Base):
 
 class PlanSession(Base):
     __tablename__ = "plan_sessions"
-    
+
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     plan_id = Column(String, ForeignKey("plans.id"), nullable=False)
     name = Column(String, nullable=False)
+    week_number = Column(Integer, default=1, server_default='1')
     order_index = Column(Integer, default=0)
     scheduled_date = Column(String)
     notes = Column(Text)
 
     plan = relationship("Plan", back_populates="sessions")
     exercises = relationship("PlanExercise", back_populates="session", cascade="all, delete-orphan")
+
+class SuggestionLog(Base):
+    __tablename__ = "suggestion_logs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
+    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"), nullable=True)
+
+    # What the algorithm saw
+    previous_weight = Column(Float, nullable=True)
+    average_rpe = Column(Float, nullable=True)
+
+    # What the algorithm suggested
+    suggested_weight = Column(Float, nullable=False)
+    adjustment_reason = Column(Text, nullable=False)
+
+    # What the user actually did (filled in after the session, optional)
+    actual_weight = Column(Float, nullable=True)
+    actual_reps = Column(Integer, nullable=True)
+    actual_rpe = Column(Float, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    exercise = relationship("Exercise")
+
 
 class PlanExercise(Base):
     __tablename__ = "plan_exercises"

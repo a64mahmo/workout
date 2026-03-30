@@ -37,6 +37,7 @@ async def create_exercise(exercise: ExerciseCreate, _: str = Depends(get_current
             id=str(uuid.uuid4()),
             name=exercise.name,
             muscle_group=exercise.muscle_group,
+            category=exercise.category,
             description=exercise.description
         )
         session.add(new_exercise)
@@ -56,6 +57,8 @@ async def update_exercise(exercise_id: str, exercise: ExerciseUpdate):
             db_exercise.name = exercise.name
         if exercise.muscle_group is not None:
             db_exercise.muscle_group = exercise.muscle_group
+        if exercise.category is not None:
+            db_exercise.category = exercise.category
         if exercise.description is not None:
             db_exercise.description = exercise.description
         
