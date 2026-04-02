@@ -325,21 +325,9 @@ function ExerciseHistoryPanel({ exerciseId, open, isBodyweight = false }: {
 
 // ── Set row ───────────────────────────────────────────────────────────────────
 function SetRow({
-  set,
-  isActive,
-  editVal,
-  onEdit,
-  onComplete,
-  onUncheck,
-  onDelete,
-  isCompleting,
-  isUnchecking,
-  isEditable,
-  isBodyweight = false,
-  canComplete,
-  isJustCompleted = false,
-  onSwipeRight,
-  prevSet,
+  set, isActive, editVal, onEdit, onComplete, onUncheck, onDelete,
+  isCompleting, isUnchecking, isEditable, isBodyweight = false,
+  canComplete, isJustCompleted = false, prevSet, ghostVal,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -354,72 +342,29 @@ function SetRow({
   isBodyweight?: boolean;
   canComplete?: boolean;
   isJustCompleted?: boolean;
-  onSwipeRight?: () => void;
   prevSet?: HistorySet;
+  ghostVal?: { weight?: string; reps?: string };
 }) {
-  const [swipeX, setSwipeX] = useState(0);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartRef.current) return;
-    const dx = e.touches[0].clientX - touchStartRef.current.x;
-    const dy = e.touches[0].clientY - touchStartRef.current.y;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) setSwipeX(Math.max(-120, Math.min(120, dx)));
-  };
-  const handleTouchEnd = () => {
-    if (swipeX < -80) onDelete();
-    else if (swipeX > 80) onSwipeRight?.();
-    setSwipeX(0);
-    touchStartRef.current = null;
-  };
-
-  const swipeOpacity = Math.min(1, Math.abs(swipeX) / 80);
-  const contentStyle: React.CSSProperties = {
-    transform: `translateX(${swipeX}px)`,
-    transition: swipeX === 0 ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
-  };
-
   const prevLabel = prevSet
     ? (isBodyweight ? `${prevSet.reps}` : `${prevSet.weight}×${prevSet.reps}`)
     : '—';
 
-  const swipeBgs = (
-    <>
-      <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
-        <X className="size-5 text-white" />
-      </div>
-      <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
-        <Dumbbell className="size-5 text-primary-foreground" />
-      </div>
-    </>
-  );
-
-  // ── Completed / read-only view ──
+  // ── Completed / read-only ──
   if (set.is_completed || !isEditable) {
     return (
-      <div className="relative overflow-hidden border-t border-border/20 first:border-t-0" style={{ touchAction: 'pan-y' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-        {swipeBgs}
-        <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')} style={contentStyle}>
-          {/* Set # */}
+      <div className="border-t border-border/20 first:border-t-0">
+        <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}>
           <span className="w-6 text-xs text-muted-foreground tabular-nums text-center shrink-0 font-medium">{set.set_number}</span>
-          {/* Previous */}
           <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
-          {/* Lbs */}
           {!isBodyweight && (
             <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
               {set.weight}
             </span>
           )}
-          {/* Reps */}
           <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
             {set.reps}
           </span>
-          {/* RPE */}
           <span className="w-12 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
-          {/* Check / uncheck */}
           {isEditable ? (
             <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 w-9 flex justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
               {isUnchecking ? <Circle className="size-5 animate-pulse" /> : <CheckCircle2 className="size-5" />}
@@ -434,18 +379,13 @@ function SetRow({
 
   // ── Editable staged row ──
   return (
-    <div className="relative overflow-hidden border-t border-border/20 first:border-t-0" style={{ touchAction: 'pan-y' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      {swipeBgs}
-      <div className={cn('flex items-center gap-2 px-3 py-2 bg-card transition-colors', isActive && 'bg-primary/5')} style={contentStyle}>
-        {/* Set # */}
+    <div className={cn('border-t border-border/20 first:border-t-0', isActive && 'bg-primary/5')}>
+      <div className="flex items-center gap-2 px-3 py-2">
         <span className={cn('w-6 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
           {set.set_number}
         </span>
-
-        {/* Previous */}
         <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
 
-        {/* Lbs */}
         {!isBodyweight && (
           <div className="relative flex-1">
             <Input
@@ -453,32 +393,29 @@ function SetRow({
               value={editVal.weight}
               onChange={e => onEdit('weight', e.target.value)}
               onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-              className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background')}
-              placeholder="—"
+              className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background', !editVal.weight && ghostVal?.weight && 'placeholder:text-foreground/50 placeholder:font-medium')}
+              placeholder={!editVal.weight && ghostVal?.weight ? ghostVal.weight : '—'}
             />
             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
           </div>
         )}
 
-        {/* Reps */}
         <div className="relative flex-1">
           <Input
             type="number" inputMode="numeric"
             value={editVal.reps}
             onChange={e => onEdit('reps', e.target.value)}
             onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
-            placeholder="—"
+            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background', !editVal.reps && ghostVal?.reps && 'placeholder:text-foreground/50 placeholder:font-medium')}
+            placeholder={!editVal.reps && ghostVal?.reps ? ghostVal.reps : '—'}
           />
           <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
         </div>
 
-        {/* RPE */}
         <div className="w-12 shrink-0">
           <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
         </div>
 
-        {/* Check button */}
         <button
           onClick={onComplete}
           disabled={!canComplete || isCompleting}
@@ -724,6 +661,44 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     return map;
   }, [allHistoryData]);
 
+  // Fetch weight suggestions for all exercises
+  const { data: suggestionsData } = useQuery({
+    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(',')],
+    queryFn: async () => {
+      const results = await Promise.allSettled(
+        exerciseIds.map(exId =>
+          api.get('/api/suggestions/weight', { params: { exercise_id: exId } })
+            .then(r => ({ exId, data: r.data as { suggested_weight: number; adjustment_reason: string; previous_weight: number } }))
+        )
+      );
+      return results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
+    },
+    enabled: exerciseIds.length > 0 && isEditing,
+    staleTime: 5 * 60_000,
+  });
+
+  const suggestionsMap = useMemo(() => {
+    const map: Record<string, { suggested_weight: number; adjustment_reason: string }> = {};
+    for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
+    return map;
+  }, [suggestionsData]);
+
+  const applyWeightSuggestion = (seId: string, weight: number) => {
+    const exercise = session?.exercises.find(se => se.id === seId);
+    if (!exercise) return;
+    setSetEdits(prev => {
+      const next = { ...prev };
+      for (const s of exercise.sets) {
+        if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: String(weight) };
+      }
+      return next;
+    });
+  };
+
+  // Exercise card swipe state
+  const [exSwipeX, setExSwipeX] = useState<Record<string, number>>({});
+  const exTouchRef = useRef<Record<string, { x: number; y: number }>>({});
+
   const getEdit = (s: ExerciseSet) => {
     const edit = setEdits[s.id] ?? {};
     return {
@@ -733,28 +708,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     };
   };
 
+  // Only update the current set — ghost propagation is computed in render
   const updateEdit = (seId: string, setId: string, field: 'reps' | 'weight' | 'rpe', val: string) =>
-    setSetEdits(prev => {
-      const next = { ...prev };
-      next[setId] = { ...(next[setId] ?? {}), [field]: val };
-      // Propagate to uncompleted sets below — only if new value is higher
-      const numVal = parseFloat(val);
-      if (!isNaN(numVal) && numVal > 0 && field !== 'rpe') {
-        const exercise = session?.exercises.find(se => se.id === seId);
-        if (exercise) {
-          const idx = exercise.sets.findIndex(s => s.id === setId);
-          for (let i = idx + 1; i < exercise.sets.length; i++) {
-            const below = exercise.sets[i];
-            if (below.is_completed) continue;
-            const existing = parseFloat(next[below.id]?.[field] ?? '0');
-            if (numVal > existing) {
-              next[below.id] = { ...(next[below.id] ?? {}), [field]: val };
-            }
-          }
-        }
-      }
-      return next;
-    });
+    setSetEdits(prev => ({ ...prev, [setId]: { ...(prev[setId] ?? {}), [field]: val } }));
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -846,10 +802,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const replaceExerciseMutation = useMutation({
     mutationFn: async ({ oldSeId, newExerciseId }: { oldSeId: string; newExerciseId: string }) => {
+      const oldExercise = session?.exercises.find(se => se.id === oldSeId);
       const orderIndex = session?.exercises.findIndex(se => se.id === oldSeId) ?? 0;
+      const oldSets = oldExercise?.sets ?? [];
+      const setCount = Math.max(oldSets.length, 1);
+      const refSet = oldSets.filter(s => !s.is_completed).at(-1) ?? oldSets.at(-1) ?? { reps: 10, weight: 0 };
       await api.delete(`/api/sessions/session-exercises/${oldSeId}`);
-      const res = await api.post(`/api/sessions/${id}/exercises`, { exercise_id: newExerciseId, order_index: orderIndex });
-      return res.data;
+      const addRes = await api.post(`/api/sessions/${id}/exercises`, { exercise_id: newExerciseId, order_index: orderIndex });
+      const newSeId = addRes.data.id;
+      for (let i = 0; i < setCount; i++) {
+        await api.post(`/api/sessions/session-exercises/${newSeId}/sets`, {
+          set_number: i + 1, reps: refSet.reps, weight: refSet.weight, is_warmup: false,
+        });
+      }
+      return addRes.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
@@ -1157,20 +1123,72 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </div>
       ) : (
         <div className="space-y-3">
-          {session.exercises.map((se: SessionExercise, idx: number) => {
+          {[...session.exercises].sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)).map((se: SessionExercise, idx: number) => {
             const historyOpen = expandedHistory.has(se.id);
             const completedCount = se.sets.filter(s => s.is_completed).length;
             const totalCount = se.sets.length;
             const exVol = se.sets.filter(s => s.is_completed).reduce((t, s) => t + s.reps * s.weight, 0);
             const firstPendingId = se.sets.find(s => !s.is_completed)?.id;
             const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? 90 };
+            const suggestion = suggestionsMap[se.exercise_id];
+
+            // Compute ghost text: walk sets in order, propagate last non-empty value forward
+            const ghostMap: Record<string, { weight?: string; reps?: string }> = {};
+            let lastGhostWeight = '';
+            let lastGhostReps = '';
+            for (const s of se.sets) {
+              if (s.is_completed) continue;
+              const edit = getEdit(s);
+              const ghost: { weight?: string; reps?: string } = {};
+              if (!edit.weight && lastGhostWeight) ghost.weight = lastGhostWeight;
+              else if (edit.weight) lastGhostWeight = edit.weight;
+              if (!edit.reps && lastGhostReps) ghost.reps = lastGhostReps;
+              else if (edit.reps) lastGhostReps = edit.reps;
+              if (ghost.weight || ghost.reps) ghostMap[s.id] = ghost;
+            }
+
+            // Exercise card swipe values
+            const swX = exSwipeX[se.id] ?? 0;
+            const swOp = Math.min(1, Math.abs(swX) / 80);
 
             return (
               <div
                 key={se.id}
-                className="rounded-xl border border-border bg-card overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300"
-                style={{ animationDelay: `${idx * 40}ms`, animationFillMode: 'both' }}
+                className="relative animate-in fade-in slide-in-from-bottom-2 duration-300"
+                style={{ animationDelay: `${idx * 40}ms`, animationFillMode: 'both', touchAction: 'pan-y' }}
+                onTouchStart={e => { exTouchRef.current[se.id] = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+                onTouchMove={e => {
+                  const start = exTouchRef.current[se.id];
+                  if (!start) return;
+                  const dx = e.touches[0].clientX - start.x;
+                  const dy = e.touches[0].clientY - start.y;
+                  if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6)
+                    setExSwipeX(prev => ({ ...prev, [se.id]: Math.max(-110, Math.min(110, dx)) }));
+                }}
+                onTouchEnd={() => {
+                  const sw = exSwipeX[se.id] ?? 0;
+                  if (sw < -80) removeExerciseMutation.mutate(se.id);
+                  else if (sw > 80) setReplaceExerciseSeId(se.id);
+                  setExSwipeX(prev => { const n = { ...prev }; delete n[se.id]; return n; });
+                  delete exTouchRef.current[se.id];
+                }}
               >
+                {/* Swipe backgrounds */}
+                <div className="absolute inset-0 rounded-xl bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swX < 0 ? swOp : 0 }}>
+                  <X className="size-6 text-white" />
+                </div>
+                <div className="absolute inset-0 rounded-xl bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swX > 0 ? swOp : 0 }}>
+                  <Dumbbell className="size-6 text-primary-foreground" />
+                </div>
+
+                {/* Card */}
+                <div
+                  className="rounded-xl border border-border bg-card overflow-hidden"
+                  style={{
+                    transform: `translateX(${swX}px)`,
+                    transition: swX === 0 ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
+                  }}
+                >
                 {/* Exercise header (tap for history) */}
                 <div
                   role="button"
@@ -1213,8 +1231,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 </div>
 
-                {/* Rest timer control */}
-                <div className="flex items-center px-4 py-1.5 bg-muted/10 border-b border-border/20">
+                {/* Rest timer control + suggestion */}
+                <div className="flex items-center justify-between px-4 py-1.5 bg-muted/10 border-b border-border/20">
                   <RestControl
                     enabled={cfg.enabled}
                     duration={cfg.duration}
@@ -1231,6 +1249,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       }))
                     }
                   />
+                  {isEditing && suggestion && (
+                    <button
+                      onClick={() => applyWeightSuggestion(se.id, suggestion.suggested_weight)}
+                      title={suggestion.adjustment_reason}
+                      className="flex items-center gap-1 text-xs text-primary/80 hover:text-primary transition-colors font-medium ml-2 shrink-0"
+                    >
+                      <TrendingUp className="size-3" />
+                      {suggestion.suggested_weight} lbs
+                    </button>
+                  )}
                 </div>
 
                 {/* History panel */}
@@ -1256,10 +1284,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     const edit = getEdit(s);
                     const isBodyweight = se.exercise.category === 'bodyweight';
                     const prevSet = prevSetsMap[se.exercise_id]?.[s.set_number];
-                    // Auto-fill: can complete if fields have values OR we can pull from last completed set / prev session
+                    const ghost = ghostMap[s.id];
                     const lastCompleted = [...se.sets].reverse().find(x => x.is_completed && x.id !== s.id);
-                    const autoReps = edit.reps || String(lastCompleted?.reps ?? prevSet?.reps ?? '');
-                    const autoWeight = isBodyweight ? '0' : (edit.weight || String(lastCompleted?.weight ?? prevSet?.weight ?? ''));
+                    const autoReps = edit.reps || ghost?.reps || String(lastCompleted?.reps ?? prevSet?.reps ?? '');
+                    const autoWeight = isBodyweight ? '0' : (edit.weight || ghost?.weight || String(lastCompleted?.weight ?? prevSet?.weight ?? ''));
                     const canComplete = isBodyweight ? !!autoReps : (!!autoReps && !!autoWeight);
                     return (
                       <SetRow
@@ -1271,16 +1299,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         isBodyweight={isBodyweight}
                         isJustCompleted={s.id === justCompletedSetId}
                         prevSet={prevSet}
+                        ghostVal={ghostMap[s.id]}
                         onEdit={(field, val) => updateEdit(se.id, s.id, field, val)}
                         onComplete={() => {
-                          // Auto-fill empty fields from last completed set or previous session
-                          let reps = parseInt(edit.reps) || parseInt(String(lastCompleted?.reps ?? prevSet?.reps ?? 0));
-                          let weight = isBodyweight ? 0 : (parseFloat(edit.weight) || parseFloat(String(lastCompleted?.weight ?? prevSet?.weight ?? 0)));
+                          const ghost = ghostMap[s.id];
+                          let reps = parseInt(edit.reps) || parseInt(ghost?.reps ?? '') || parseInt(String(lastCompleted?.reps ?? prevSet?.reps ?? 0));
+                          let weight = isBodyweight ? 0 : (parseFloat(edit.weight) || parseFloat(ghost?.weight ?? '') || parseFloat(String(lastCompleted?.weight ?? prevSet?.weight ?? 0)));
                           if (!reps) return;
                           if (!isBodyweight && !weight) return;
-                          // Update edit state so inputs reflect auto-filled values
-                          if (!edit.reps) updateEdit(se.id, s.id, 'reps', String(reps));
-                          if (!isBodyweight && !edit.weight) updateEdit(se.id, s.id, 'weight', String(weight));
                           completeSetMutation.mutate({
                             setId: s.id,
                             seId: se.id,
@@ -1298,7 +1324,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                           })
                         }
                         onDelete={() => deleteSetMutation.mutate(s.id)}
-                        onSwipeRight={() => setReplaceExerciseSeId(se.id)}
                         isCompleting={completeSetMutation.isPending && completeSetMutation.variables?.setId === s.id}
                         isUnchecking={uncompleteSetMutation.isPending && uncompleteSetMutation.variables?.setId === s.id}
                         canComplete={canComplete}
@@ -1331,7 +1356,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     Add Set
                   </button>
                 </div>
-              </div>
+                </div> {/* end inner card */}
+              </div> {/* end swipe wrapper */}
             );
           })}
         </div>
