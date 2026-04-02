@@ -29,7 +29,6 @@ import { AxiosError } from 'axios';
 
 
 const goals = ['strength', 'hypertrophy', 'endurance'];
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 const goalColors: Record<string, string> = {
   strength: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -79,33 +78,22 @@ export default function CyclesPage() {
     goal: 'hypertrophy',
   });
   const queryClient = useQueryClient();
-  const [userId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId');
-      if (!stored || stored === 'default-user') {
-        localStorage.setItem('userId', DEFAULT_USER_ID);
-        return DEFAULT_USER_ID;
-      }
-      return stored;
-    }
-    return DEFAULT_USER_ID;
-  });
 
   const { data: cycles, isLoading } = useQuery({
-    queryKey: ['cycles', userId],
+    queryKey: ['cycles'],
     queryFn: async () => {
-      const res = await api.get(`/api/meso-cycles?user_id=${userId}`);
+      const res = await api.get('/api/meso-cycles');
       return res.data as MesoCycle[];
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newCycle) => {
-      const res = await api.post(`/api/meso-cycles?user_id=${userId}`, data);
+      const res = await api.post('/api/meso-cycles', data);
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cycles', userId] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
       setIsDialogOpen(false);
       setNewCycle({
         name: '',
@@ -126,7 +114,7 @@ export default function CyclesPage() {
       await api.delete(`/api/meso-cycles/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cycles', userId] });
+      queryClient.invalidateQueries({ queryKey: ['cycles'] });
     },
   });
 

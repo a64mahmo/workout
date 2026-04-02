@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, HTTPException, Header, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -7,11 +7,12 @@ from ..database import async_session
 from ..models import MesoCycle, MicroCycle
 from ..schemas import MesoCycleCreate, MesoCycleUpdate, MesoCycleResponse
 from ..schemas import MicroCycleCreate, MicroCycleUpdate, MicroCycleResponse
+from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/meso-cycles", tags=["meso-cycles"])
 
 @router.get("", response_model=List[MesoCycleResponse])
-async def list_cycles(user_id: str = Query(...)):
+async def list_cycles(user_id: str = Depends(get_current_user_id)):
     async with async_session() as session:
         result = await session.execute(
             select(MesoCycle).where(MesoCycle.user_id == user_id)
@@ -29,7 +30,7 @@ async def get_cycle(cycle_id: str):
         return cycle
 
 @router.post("", response_model=MesoCycleResponse)
-async def create_cycle(cycle: MesoCycleCreate, user_id: str = Query(...)):
+async def create_cycle(cycle: MesoCycleCreate, user_id: str = Depends(get_current_user_id)):
     async with async_session() as session:
         new_cycle = MesoCycle(
             id=str(uuid.uuid4()),

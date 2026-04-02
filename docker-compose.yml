@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: workout
+      POSTGRES_PASSWORD: workout_secret
+      POSTGRES_DB: workout
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workout"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "80:80"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://workout:workout_secret@db:5432/workout
+      ALLOWED_ORIGINS: http://localhost
+      FITBIT_CLIENT_ID: ""
+      FITBIT_CLIENT_SECRET: ""
+      FITBIT_REDIRECT_URI: http://localhost/settings/fitbit/callback
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

@@ -27,17 +27,20 @@ class TokenResponse(BaseModel):
 class ExerciseCreate(BaseModel):
     name: str
     muscle_group: str
+    category: str = 'weighted'
     description: Optional[str] = None
 
 class ExerciseUpdate(BaseModel):
     name: Optional[str] = None
     muscle_group: Optional[str] = None
+    category: Optional[str] = None
     description: Optional[str] = None
 
 class ExerciseResponse(BaseModel):
     id: str
     name: str
     muscle_group: str
+    category: str = 'weighted'
     description: Optional[str] = None
     created_at: Optional[datetime] = None
 

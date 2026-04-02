@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.database import async_session, init_db
 from app.models.models import Exercise, Plan, PlanSession, PlanExercise, User
 
-DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000'
+DEFAULT_USER_ID = '8cb5dd7a-f6f3-4dbc-8ad0-ecfdb4fcd7e6'
 
 all_sessions = [
     # WEEK 1
@@ -457,7 +457,7 @@ async def seed():
     await init_db()
 
     async with async_session() as session:
-        result = await session.execute(select(Plan).where(Plan.name == 'Powerbuilding Phase 2'))
+        result = await session.execute(select(Plan).where(Plan.name == 'Powerbuilding Phase 2', Plan.user_id == DEFAULT_USER_ID))
         plan = result.scalar_one_or_none()
         
         if not plan:

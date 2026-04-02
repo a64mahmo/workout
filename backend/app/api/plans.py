@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.deps import get_current_user_id
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -16,6 +17,7 @@ class ExerciseBase(BaseModel):
     id: str
     name: str
     muscle_group: str
+    category: str = 'weighted'
 
 class PlanExerciseCreate(BaseModel):
     exercise_id: str
@@ -43,6 +45,7 @@ class PlanExerciseResponse(BaseModel):
 
 class PlanSessionCreate(BaseModel):
     name: str
+    week_number: int = 1
     order_index: int = 0
     scheduled_date: Optional[str] = None
     notes: Optional[str] = None
@@ -51,6 +54,7 @@ class PlanSessionResponse(BaseModel):
     id: str
     plan_id: str
     name: str
+    week_number: int = 1
     order_index: int = 0
     scheduled_date: Optional[str] = None
     notes: Optional[str] = None
@@ -60,6 +64,10 @@ class PlanSessionResponse(BaseModel):
 
 class PlanCreate(BaseModel):
     name: str
+    description: Optional[str] = None
+
+class PlanUpdate(BaseModel):
+    name: Optional[str] = None
     description: Optional[str] = None
 
 class PlanResponse(BaseModel):
@@ -84,6 +92,7 @@ class PlanResponse(BaseModel):
 
 class PlanSessionUpdate(BaseModel):
     name: Optional[str] = None
+    week_number: Optional[int] = None
     order_index: Optional[int] = None
     scheduled_date: Optional[str] = None
     notes: Optional[str] = None
@@ -101,7 +110,7 @@ class PlanExerciseUpdate(BaseModel):
 
 @router.get("", response_model=List[PlanResponse])
 async def get_plans(
-    user_id: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -173,7 +182,7 @@ async def get_plan(
 @router.post("", response_model=PlanResponse)
 async def create_plan(
     plan_data: PlanCreate,
-    user_id: str = Query(...),
+    user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
     plan = Plan(user_id=user_id, name=plan_data.name, description=plan_data.description)
@@ -184,6 +193,34 @@ async def create_plan(
         select(Plan)
         .options(selectinload(Plan.sessions).selectinload(PlanSession.exercises).selectinload(PlanExercise.exercise))
         .where(Plan.id == plan.id)
+    )
+    return result.scalar_one()
+
+
+@router.put("/{plan_id}", response_model=PlanResponse)
+async def update_plan(
+    plan_id: str,
+    plan_data: PlanUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Plan)
+        .options(selectinload(Plan.sessions).selectinload(PlanSession.exercises).selectinload(PlanExercise.exercise))
+        .where(Plan.id == plan_id)
+    )
+    plan = result.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan_data.name is not None:
+        plan.name = plan_data.name
+    if plan_data.description is not None:
+        plan.description = plan_data.description
+    await db.commit()
+    await db.refresh(plan)
+    result = await db.execute(
+        select(Plan)
+        .options(selectinload(Plan.sessions).selectinload(PlanSession.exercises).selectinload(PlanExercise.exercise))
+        .where(Plan.id == plan_id)
     )
     return result.scalar_one()
 
@@ -216,6 +253,7 @@ async def create_plan_session(
     session = PlanSession(
         plan_id=plan_id,
         name=session_data.name,
+        week_number=session_data.week_number,
         order_index=session_data.order_index,
         scheduled_date=session_data.scheduled_date,
         notes=session_data.notes
@@ -248,6 +286,8 @@ async def update_plan_session(
     
     if session_data.name is not None:
         session.name = session_data.name
+    if session_data.week_number is not None:
+        session.week_number = session_data.week_number
     if session_data.scheduled_date is not None:
         session.scheduled_date = session_data.scheduled_date
     if session_data.notes is not None:

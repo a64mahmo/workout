@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Navigation } from "@/components/shared/navigation";
 import { Providers } from "@/components/providers";
+import { AppShell } from "@/components/app-shell";
 
 export const metadata: Metadata = {
   title: "Workout Tracker",
@@ -21,10 +21,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex-col flex">
         <Providers>
-          <Navigation />
-          <main className="flex-1 container mx-auto px-4 py-6">
-            {children}
-          </main>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

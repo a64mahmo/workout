@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete as sa_delete
+from sqlalchemy import select, delete as sa_delete, func
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime
@@ -11,11 +11,12 @@ from app.models.models import TrainingSession, SessionExercise, ExerciseSet, Exe
 from app.schemas import SessionCreate, SessionUpdate, SessionResponse
 from app.schemas import SessionExerciseCreate, SessionExerciseUpdate, SessionExerciseResponse
 from app.schemas import ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse
+from app.deps import get_current_user_id
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 @router.get("", response_model=List[SessionResponse])
-async def list_sessions(user_id: str, db: AsyncSession = Depends(get_db)):
+async def list_sessions(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(TrainingSession)
         .options(
@@ -45,7 +46,7 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     return session_obj
 
 @router.post("", response_model=SessionResponse)
-async def create_session(session: SessionCreate, user_id: str, db: AsyncSession = Depends(get_db)):
+async def create_session(session: SessionCreate, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     new_session = TrainingSession(
         id=str(uuid.uuid4()),
         user_id=user_id,
@@ -130,6 +131,78 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Session started", "start_time": db_session.start_time.isoformat()}
 
+@router.get("/{session_id}/pre-summary")
+async def get_session_pre_summary(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(TrainingSession)
+        .options(
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.sets),
+            selectinload(TrainingSession.session_exercises).selectinload(SessionExercise.exercise),
+        )
+        .where(TrainingSession.id == session_id)
+    )
+    db_session = result.scalar_one_or_none()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    count_result = await db.execute(
+        select(func.count(TrainingSession.id))
+        .where(TrainingSession.user_id == db_session.user_id)
+        .where(TrainingSession.status == 'completed')
+    )
+    workout_number = (count_result.scalar() or 0) + 1
+
+    duration_seconds = None
+    if db_session.start_time:
+        duration_seconds = int((datetime.utcnow() - db_session.start_time).total_seconds())
+
+    prs = []
+    for se in db_session.session_exercises:
+        completed = [s for s in se.sets if s.is_completed and not s.is_warmup and s.weight and s.weight > 0]
+        if not completed:
+            continue
+        current_max = max(s.weight for s in completed)
+
+        hist_result = await db.execute(
+            select(func.max(ExerciseSet.weight))
+            .join(SessionExercise, SessionExercise.id == ExerciseSet.session_exercise_id)
+            .join(TrainingSession, TrainingSession.id == SessionExercise.session_id)
+            .where(SessionExercise.exercise_id == se.exercise_id)
+            .where(TrainingSession.user_id == db_session.user_id)
+            .where(TrainingSession.id != session_id)
+            .where(TrainingSession.status == 'completed')
+            .where(ExerciseSet.is_completed == True)
+            .where(ExerciseSet.is_warmup == False)
+        )
+        hist_max = hist_result.scalar() or 0
+
+        if current_max > hist_max:
+            prs.append({
+                "exercise_name": se.exercise.name,
+                "old_max": float(hist_max),
+                "new_max": float(current_max),
+            })
+
+    total_volume = sum(
+        s.reps * s.weight
+        for se in db_session.session_exercises
+        for s in se.sets
+        if s.is_completed and not s.is_warmup and s.reps and s.weight
+    )
+    completed_sets_count = sum(1 for se in db_session.session_exercises for s in se.sets if s.is_completed)
+    total_sets_count = sum(len(se.sets) for se in db_session.session_exercises)
+
+    return {
+        "workout_number": workout_number,
+        "duration_seconds": duration_seconds,
+        "total_volume": total_volume,
+        "completed_sets": completed_sets_count,
+        "total_sets": total_sets_count,
+        "exercise_count": len(db_session.session_exercises),
+        "prs": prs,
+    }
+
+
 @router.post("/{session_id}/complete")
 async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -192,8 +265,16 @@ async def add_exercise_to_session(session_id: str, exercise: SessionExerciseCrea
     )
     db.add(new_se)
     await db.commit()
-    await db.refresh(new_se)
-    return new_se
+
+    result = await db.execute(
+        select(SessionExercise)
+        .options(
+            selectinload(SessionExercise.exercise),
+            selectinload(SessionExercise.sets),
+        )
+        .where(SessionExercise.id == new_se.id)
+    )
+    return result.scalar_one()
 
 @router.put("/session-exercises/{se_id}", response_model=SessionExerciseResponse)
 async def update_session_exercise(se_id: str, exercise: SessionExerciseUpdate, db: AsyncSession = Depends(get_db)):

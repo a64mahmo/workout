@@ -17,8 +17,6 @@ import {
 import type { WorkoutPlan, MesoCycle } from '@/types';
 import { ClipboardList, Plus, Trash2, ChevronRight } from 'lucide-react';
 
-const USER_ID = '00000000-0000-0000-0000-000000000000';
-
 export default function PlansPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -30,7 +28,7 @@ export default function PlansPage() {
   const { data: plans, isLoading } = useQuery<WorkoutPlan[]>({
     queryKey: ['plans'],
     queryFn: async () => {
-      const res = await api.get('/api/plans', { params: { user_id: USER_ID } });
+      const res = await api.get('/api/plans');
       return res.data;
     },
   });
@@ -38,7 +36,7 @@ export default function PlansPage() {
   const { data: cycles } = useQuery<MesoCycle[]>({
     queryKey: ['cycles'],
     queryFn: async () => {
-      const res = await api.get('/api/meso-cycles', { params: { user_id: USER_ID } });
+      const res = await api.get('/api/meso-cycles');
       return res.data;
     },
   });
@@ -49,7 +47,7 @@ export default function PlansPage() {
         name,
         description: description || undefined,
         meso_cycle_id: mesoId || undefined,
-      }, { params: { user_id: USER_ID } });
+      });
       return res.data as WorkoutPlan;
     },
     onSuccess: (plan) => {
@@ -121,13 +119,23 @@ export default function PlansPage() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-              <Button
-                className="w-full"
-                onClick={() => createMutation.mutate()}
-                disabled={!name.trim() || createMutation.isPending}
-              >
-                {createMutation.isPending ? 'Creating…' : 'Create & Configure'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setCreateOpen(false); setName(''); setDescription(''); setMesoId(''); }}
+                  disabled={createMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={() => createMutation.mutate()}
+                  disabled={!name.trim() || createMutation.isPending}
+                >
+                  {createMutation.isPending ? 'Creating…' : 'Create'}
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

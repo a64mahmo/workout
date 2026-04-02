@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.database import async_session, init_db
 from app.models.models import Exercise, Plan, PlanSession, PlanExercise, User
 
-DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000'
+DEFAULT_USER_ID = '8cb5dd7a-f6f3-4dbc-8ad0-ecfdb4fcd7e6'
 
 exercises_to_add = [
     {"name": "Back squat", "muscle_group": "legs", "description": "Compound leg exercise"},

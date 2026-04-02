@@ -10,11 +10,10 @@ import { Progress } from '@/components/ui/progress';
 import { api } from '@/lib/api';
 import { formatStatus } from '@/lib/utils';
 import type { MesoCycle, TrainingSession } from '@/types';
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { differenceInDays, subDays, parseISO, format } from 'date-fns';
-import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints } from 'lucide-react';
-
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
+import { Dumbbell, Flame, Calendar, ChevronRight, Plus, Target, Activity, Heart, Moon, Weight, Footprints, RefreshCw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 const goalColors: Record<string, string> = {
   strength: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
@@ -24,38 +23,29 @@ const goalColors: Record<string, string> = {
 
 export default function Dashboard() {
   const router = useRouter();
-  const [userId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('userId');
-      if (!stored || stored === 'default-user') {
-        localStorage.setItem('userId', DEFAULT_USER_ID);
-        return DEFAULT_USER_ID;
-      }
-      return stored;
-    }
-    return DEFAULT_USER_ID;
-  });
-
+  const queryClient = useQueryClient();
+  const [isSyncing, setIsSyncing] = useState(false);
   const { data: cycles } = useQuery({
-    queryKey: ['cycles', userId],
+    queryKey: ['cycles'],
     queryFn: async () => {
-      const res = await api.get(`/api/meso-cycles?user_id=${userId}`);
+      const res = await api.get('/api/meso-cycles');
       return res.data as MesoCycle[];
     },
   });
 
   const { data: sessions } = useQuery({
-    queryKey: ['sessions', userId],
+    queryKey: ['sessions'],
     queryFn: async () => {
-      const res = await api.get(`/api/sessions?user_id=${userId}`);
+      const res = await api.get('/api/sessions');
       return res.data as TrainingSession[];
     },
   });
 
   const { data: fitbitStats } = useQuery({
-    queryKey: ['fitbit-today', userId],
+    queryKey: ['fitbit-today'],
     queryFn: async () => {
-      const res = await api.get(`/api/fitbit/today-stats?user_id=${userId}`);
+      const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local timezone
+      const res = await api.get('/api/fitbit/today-stats', { params: { date: today } });
       return res.data as {
         connected: boolean;
         steps: number | null;
@@ -67,8 +57,9 @@ export default function Dashboard() {
         sleep_score: number | null;
       };
     },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 3 * 60 * 60 * 1000,
+    refetchInterval: false,
+    retry: false,
   });
 
   const activeCycle = cycles?.find((c) => c.is_active);
@@ -180,11 +171,44 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-4">
 
       {/* Fitbit Today */}
+      {fitbitStats?.connected === false && fitbitStats !== undefined && (
+        <div className="col-span-2 rounded-xl border border-border bg-card px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Activity className="size-4" />
+            Fitbit token expired — reconnect to see today&apos;s stats
+          </div>
+          <Button variant="outline" size="sm" onClick={() => router.push('/settings')}>
+            Reconnect
+          </Button>
+        </div>
+      )}
       {fitbitStats?.connected && (
         <div className="col-span-2">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="size-4 text-green-600 dark:text-green-400" />
-            <h2 className="font-semibold text-sm">Today&apos;s Fitbit</h2>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="size-4 text-green-600 dark:text-green-400" />
+              <h2 className="font-semibold text-sm">Today&apos;s Fitbit</h2>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs h-7 px-2"
+              disabled={isSyncing}
+              onClick={async () => {
+                setIsSyncing(true);
+                try {
+                  const today = new Date().toLocaleDateString('en-CA');
+                  await api.post('/api/fitbit/sync-today', null, { params: { date: today } });
+                  await queryClient.invalidateQueries({ queryKey: ['fitbit-today'] });
+                  await queryClient.refetchQueries({ queryKey: ['fitbit-today'] });
+                } finally {
+                  setIsSyncing(false);
+                }
+              }}
+            >
+              <RefreshCw className={`size-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              Sync
+            </Button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {/* Steps */}
