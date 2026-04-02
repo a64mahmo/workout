@@ -339,6 +339,7 @@ function SetRow({
   canComplete,
   isJustCompleted = false,
   onSwipeRight,
+  prevSet,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -354,6 +355,7 @@ function SetRow({
   canComplete?: boolean;
   isJustCompleted?: boolean;
   onSwipeRight?: () => void;
+  prevSet?: HistorySet;
 }) {
   const [swipeX, setSwipeX] = useState(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -361,16 +363,12 @@ function SetRow({
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
-
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!touchStartRef.current) return;
     const dx = e.touches[0].clientX - touchStartRef.current.x;
     const dy = e.touches[0].clientY - touchStartRef.current.y;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
-      setSwipeX(Math.max(-120, Math.min(120, dx)));
-    }
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) setSwipeX(Math.max(-120, Math.min(120, dx)));
   };
-
   const handleTouchEnd = () => {
     if (swipeX < -80) onDelete();
     else if (swipeX > 80) onSwipeRight?.();
@@ -384,90 +382,70 @@ function SetRow({
     transition: swipeX === 0 ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
   };
 
-  // Completed sets or non-editable → read-only view
+  const prevLabel = prevSet
+    ? (isBodyweight ? `${prevSet.reps}` : `${prevSet.weight}×${prevSet.reps}`)
+    : '—';
+
+  const swipeBgs = (
+    <>
+      <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
+        <X className="size-5 text-white" />
+      </div>
+      <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
+        <Dumbbell className="size-5 text-primary-foreground" />
+      </div>
+    </>
+  );
+
+  // ── Completed / read-only view ──
   if (set.is_completed || !isEditable) {
     return (
-      <div
-        className="relative overflow-hidden border-t border-border/20 first:border-t-0"
-        style={{ touchAction: 'pan-y' }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Delete bg (swipe left) */}
-        <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
-          <X className="size-5 text-white" />
-        </div>
-        {/* Replace bg (swipe right) */}
-        <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
-          <Dumbbell className="size-5 text-primary-foreground" />
-        </div>
-        <div
-          className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}
-          style={contentStyle}
-        >
+      <div className="relative overflow-hidden border-t border-border/20 first:border-t-0" style={{ touchAction: 'pan-y' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+        {swipeBgs}
+        <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')} style={contentStyle}>
+          {/* Set # */}
+          <span className="w-6 text-xs text-muted-foreground tabular-nums text-center shrink-0 font-medium">{set.set_number}</span>
+          {/* Previous */}
+          <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
+          {/* Lbs */}
+          {!isBodyweight && (
+            <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
+              {set.weight}
+            </span>
+          )}
+          {/* Reps */}
+          <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
+            {set.reps}
+          </span>
+          {/* RPE */}
+          <span className="w-12 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
+          {/* Check / uncheck */}
           {isEditable ? (
-            <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
-              {isUnchecking ? <Circle className="size-5 animate-pulse" /> : set.is_completed ? <CheckCircle2 className="size-5" /> : <Circle className="size-5 text-muted-foreground/30" />}
+            <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 w-9 flex justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
+              {isUnchecking ? <Circle className="size-5 animate-pulse" /> : <CheckCircle2 className="size-5" />}
             </button>
           ) : (
-            set.is_completed ? <CheckCircle2 className="size-5 text-emerald-500 shrink-0" /> : <Circle className="size-5 text-muted-foreground/30 shrink-0" />
-          )}
-          <span className="w-5 text-xs text-muted-foreground tabular-nums text-center shrink-0">{set.set_number}</span>
-          <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
-            {set.reps} reps{!isBodyweight ? ` × ${set.weight} lbs` : ''}{set.rpe ? ` @ ${set.rpe}` : ''}
-          </span>
-          {isEditable && (
-            <button onClick={onDelete} className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
-              <X className="size-3.5" />
-            </button>
+            <span className="w-9 flex justify-center shrink-0"><CheckCircle2 className="size-5 text-emerald-500" /></span>
           )}
         </div>
       </div>
     );
   }
 
-  // Editable staged row
+  // ── Editable staged row ──
   return (
-    <div
-      className="relative overflow-hidden border-t border-border/20 first:border-t-0"
-      style={{ touchAction: 'pan-y' }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Delete bg (swipe left) */}
-      <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
-        <X className="size-5 text-white" />
-      </div>
-      {/* Replace bg (swipe right) */}
-      <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
-        <Dumbbell className="size-5 text-primary-foreground" />
-      </div>
-      <div
-        className={cn('flex items-center gap-2 px-3 py-2 bg-card transition-colors', isActive && 'bg-primary/5')}
-        style={contentStyle}
-      >
-        <button onClick={onComplete} disabled={!canComplete || isCompleting} className="shrink-0 text-muted-foreground/30 hover:text-primary disabled:opacity-30 transition-colors">
-          <Circle className="size-5" />
-        </button>
-
-        <span className={cn('w-5 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
+    <div className="relative overflow-hidden border-t border-border/20 first:border-t-0" style={{ touchAction: 'pan-y' }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      {swipeBgs}
+      <div className={cn('flex items-center gap-2 px-3 py-2 bg-card transition-colors', isActive && 'bg-primary/5')} style={contentStyle}>
+        {/* Set # */}
+        <span className={cn('w-6 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
           {set.set_number}
         </span>
 
-        <div className="relative flex-1">
-          <Input
-            type="number" inputMode="numeric"
-            value={editVal.reps}
-            onChange={e => onEdit('reps', e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
-            placeholder="—"
-          />
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
-        </div>
+        {/* Previous */}
+        <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
 
+        {/* Lbs */}
         {!isBodyweight && (
           <div className="relative flex-1">
             <Input
@@ -482,10 +460,25 @@ function SetRow({
           </div>
         )}
 
+        {/* Reps */}
+        <div className="relative flex-1">
+          <Input
+            type="number" inputMode="numeric"
+            value={editVal.reps}
+            onChange={e => onEdit('reps', e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
+            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
+            placeholder="—"
+          />
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
+        </div>
+
+        {/* RPE */}
         <div className="w-12 shrink-0">
           <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
         </div>
 
+        {/* Check button */}
         <button
           onClick={onComplete}
           disabled={!canComplete || isCompleting}
@@ -705,6 +698,32 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     [session],
   );
 
+  // Prefetch previous-session performance for all exercises so we can show it inline per set row
+  const exerciseIds = useMemo(() => session?.exercises.map(se => se.exercise_id) ?? [], [session]);
+  const { data: allHistoryData } = useQuery({
+    queryKey: ['exercises-history-bulk', exerciseIds.join(',')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        exerciseIds.map(exId =>
+          api.get(`/api/exercises/${exId}/history`).then(r => ({ exId, entries: r.data as HistoryEntry[] }))
+        )
+      );
+      return results;
+    },
+    enabled: exerciseIds.length > 0,
+    staleTime: 5 * 60_000,
+  });
+
+  // Map: exerciseId → { setNumber → HistorySet } (most recent session only)
+  const prevSetsMap = useMemo(() => {
+    const map: Record<string, Record<number, HistorySet>> = {};
+    for (const { exId, entries } of allHistoryData ?? []) {
+      map[exId] = {};
+      for (const s of entries[0]?.sets ?? []) map[exId][s.set_number] = s;
+    }
+    return map;
+  }, [allHistoryData]);
+
   const getEdit = (s: ExerciseSet) => {
     const edit = setEdits[s.id] ?? {};
     return {
@@ -714,8 +733,28 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     };
   };
 
-  const updateEdit = (setId: string, field: 'reps' | 'weight' | 'rpe', val: string) =>
-    setSetEdits(prev => ({ ...prev, [setId]: { ...(prev[setId] ?? {}), [field]: val } }));
+  const updateEdit = (seId: string, setId: string, field: 'reps' | 'weight' | 'rpe', val: string) =>
+    setSetEdits(prev => {
+      const next = { ...prev };
+      next[setId] = { ...(next[setId] ?? {}), [field]: val };
+      // Propagate to uncompleted sets below — only if new value is higher
+      const numVal = parseFloat(val);
+      if (!isNaN(numVal) && numVal > 0 && field !== 'rpe') {
+        const exercise = session?.exercises.find(se => se.id === seId);
+        if (exercise) {
+          const idx = exercise.sets.findIndex(s => s.id === setId);
+          for (let i = idx + 1; i < exercise.sets.length; i++) {
+            const below = exercise.sets[i];
+            if (below.is_completed) continue;
+            const existing = parseFloat(next[below.id]?.[field] ?? '0');
+            if (numVal > existing) {
+              next[below.id] = { ...(next[below.id] ?? {}), [field]: val };
+            }
+          }
+        }
+      }
+      return next;
+    });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -1200,11 +1239,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {/* Column headers */}
                 {se.sets.length > 0 && (
                   <div className="flex items-center gap-2 px-3 py-1 bg-muted/20 border-b border-border/10">
-                    <span className="w-5 shrink-0" /><span className="w-5 shrink-0" />
-                    <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Reps</span>
+                    <span className="w-6 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">#</span>
+                    <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Prev</span>
                     {se.exercise.category !== 'bodyweight' && (
-                      <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Weight</span>
+                      <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Lbs</span>
                     )}
+                    <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Reps</span>
                     <span className="w-12 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">RPE</span>
                     <span className="w-9 shrink-0" />
                   </div>
@@ -1215,7 +1255,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   {se.sets.map(s => {
                     const edit = getEdit(s);
                     const isBodyweight = se.exercise.category === 'bodyweight';
-                    const canComplete = isBodyweight ? !!edit.reps : (!!edit.reps && !!edit.weight);
+                    const prevSet = prevSetsMap[se.exercise_id]?.[s.set_number];
+                    // Auto-fill: can complete if fields have values OR we can pull from last completed set / prev session
+                    const lastCompleted = [...se.sets].reverse().find(x => x.is_completed && x.id !== s.id);
+                    const autoReps = edit.reps || String(lastCompleted?.reps ?? prevSet?.reps ?? '');
+                    const autoWeight = isBodyweight ? '0' : (edit.weight || String(lastCompleted?.weight ?? prevSet?.weight ?? ''));
+                    const canComplete = isBodyweight ? !!autoReps : (!!autoReps && !!autoWeight);
                     return (
                       <SetRow
                         key={s.id}
@@ -1225,12 +1270,17 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         isEditable={isEditing}
                         isBodyweight={isBodyweight}
                         isJustCompleted={s.id === justCompletedSetId}
-                        onEdit={(field, val) => updateEdit(s.id, field, val)}
+                        prevSet={prevSet}
+                        onEdit={(field, val) => updateEdit(se.id, s.id, field, val)}
                         onComplete={() => {
-                          const reps = parseInt(edit.reps);
+                          // Auto-fill empty fields from last completed set or previous session
+                          let reps = parseInt(edit.reps) || parseInt(String(lastCompleted?.reps ?? prevSet?.reps ?? 0));
+                          let weight = isBodyweight ? 0 : (parseFloat(edit.weight) || parseFloat(String(lastCompleted?.weight ?? prevSet?.weight ?? 0)));
                           if (!reps) return;
-                          const weight = isBodyweight ? 0 : parseFloat(edit.weight);
                           if (!isBodyweight && !weight) return;
+                          // Update edit state so inputs reflect auto-filled values
+                          if (!edit.reps) updateEdit(se.id, s.id, 'reps', String(reps));
+                          if (!isBodyweight && !edit.weight) updateEdit(se.id, s.id, 'weight', String(weight));
                           completeSetMutation.mutate({
                             setId: s.id,
                             seId: se.id,
