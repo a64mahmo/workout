@@ -573,6 +573,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [justCompletedSetId, setJustCompletedSetId] = useState<string | null>(null);
   const [replaceExerciseSeId, setReplaceExerciseSeId] = useState<string | null>(null);
   const [replaceExerciseSearch, setReplaceExerciseSearch] = useState('');
+  const [replaceUndo, setReplaceUndo] = useState<{
+    oldExerciseId: string;
+    oldExerciseName: string;
+    newSeId: string;
+    orderIndex: number;
+    sets: { set_number: number; reps: number; weight: number; is_warmup: boolean }[];
+  } | null>(null);
+  const replaceUndoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startRest = useCallback((duration: number, seId: string) => {
@@ -883,6 +891,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       const oldSets = oldExercise?.sets ?? [];
       const setCount = Math.max(oldSets.length, 1);
       const refSet = oldSets.filter(s => !s.is_completed).at(-1) ?? oldSets.at(-1) ?? { reps: 10, weight: 0 };
+      const oldExerciseId = oldExercise?.exercise_id ?? '';
+      const oldExerciseName = allExercises?.find(e => e.id === oldExerciseId)?.name ?? 'exercise';
+      const oldSetsSnapshot = oldSets.map((s, i) => ({
+        set_number: i + 1, reps: s.reps, weight: s.weight, is_warmup: s.is_warmup ?? false,
+      }));
+      if (oldSetsSnapshot.length === 0) {
+        oldSetsSnapshot.push({ set_number: 1, reps: refSet.reps, weight: refSet.weight, is_warmup: false });
+      }
       await api.delete(`/api/sessions/session-exercises/${oldSeId}`);
       const addRes = await api.post(`/api/sessions/${id}/exercises`, { exercise_id: newExerciseId, order_index: orderIndex });
       const newSeId = addRes.data.id;
@@ -891,12 +907,42 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           set_number: i + 1, reps: refSet.reps, weight: refSet.weight, is_warmup: false,
         });
       }
-      return addRes.data;
+      return { newSeId, oldExerciseId, oldExerciseName, orderIndex, oldSetsSnapshot };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
       setReplaceExerciseSeId(null);
       setReplaceExerciseSearch('');
+      // Set undo info and auto-clear after 5s
+      if (replaceUndoTimerRef.current) clearTimeout(replaceUndoTimerRef.current);
+      setReplaceUndo({
+        oldExerciseId: data.oldExerciseId,
+        oldExerciseName: data.oldExerciseName,
+        newSeId: data.newSeId,
+        orderIndex: data.orderIndex,
+        sets: data.oldSetsSnapshot,
+      });
+      replaceUndoTimerRef.current = setTimeout(() => setReplaceUndo(null), 5000);
+    },
+  });
+
+  const undoReplaceMutation = useMutation({
+    mutationFn: async () => {
+      if (!replaceUndo) return;
+      await api.delete(`/api/sessions/session-exercises/${replaceUndo.newSeId}`);
+      const addRes = await api.post(`/api/sessions/${id}/exercises`, {
+        exercise_id: replaceUndo.oldExerciseId,
+        order_index: replaceUndo.orderIndex,
+      });
+      const restoredSeId = addRes.data.id;
+      for (const s of replaceUndo.sets) {
+        await api.post(`/api/sessions/session-exercises/${restoredSeId}/sets`, s);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      if (replaceUndoTimerRef.current) clearTimeout(replaceUndoTimerRef.current);
+      setReplaceUndo(null);
     },
   });
 
@@ -1581,6 +1627,22 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Replace undo snackbar ────────────────────────────────────────────── */}
+      {replaceUndo && (
+        <div className="fixed bottom-24 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 bg-foreground text-background rounded-xl px-4 py-3 shadow-xl text-sm animate-in slide-in-from-bottom-2 duration-200">
+            <span className="font-medium truncate">Replaced <span className="opacity-60">{replaceUndo.oldExerciseName}</span></span>
+            <button
+              onClick={() => undoReplaceMutation.mutate()}
+              disabled={undoReplaceMutation.isPending}
+              className="font-semibold text-primary-foreground underline underline-offset-2 disabled:opacity-50 shrink-0"
+            >
+              {undoReplaceMutation.isPending ? 'Undoing…' : 'Undo'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
       <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); } }}>

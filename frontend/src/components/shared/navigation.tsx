@@ -159,7 +159,7 @@ export function Navigation() {
         'fixed bottom-0 inset-x-0 z-50 md:hidden border-t bg-background/98 backdrop-blur transition-transform duration-300',
         /^\/sessions\/[^/]+/.test(pathname) ? 'translate-y-full' : 'translate-y-0',
       )} style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <div className="flex items-center h-16 px-2">
+        <div className="flex items-center h-20 px-2">
           {/* Left 2 items */}
           {bottomNavLeft.map((item) => {
             const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
@@ -218,7 +218,7 @@ export function Navigation() {
       {moreOpen && (
         <>
           <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMoreOpen(false)} />
-          <div className="fixed bottom-16 inset-x-0 z-40 md:hidden animate-in slide-in-from-bottom-2 duration-200">
+          <div className="fixed bottom-20 inset-x-0 z-40 md:hidden animate-in slide-in-from-bottom-2 duration-200">
             <div className="mx-3 mb-2 rounded-2xl border bg-background/98 backdrop-blur shadow-xl overflow-hidden">
               {moreNavItems.map((item) => {
                 const isActive = pathname.startsWith(item.href);

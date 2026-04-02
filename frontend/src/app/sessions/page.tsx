@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -213,6 +213,33 @@ function SessionCard({
   const muscleGroups = useMemo(() => sessionMuscleGroups(session), [session]);
   const exerciseCount = session.exercises?.length ?? 0;
 
+  const [swipeX, setSwipeX] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const touchRef = useRef<{ startX: number; startY: number; locked: boolean } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchRef.current = { startX: e.touches[0].clientX, startY: e.touches[0].clientY, locked: false };
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchRef.current) return;
+    const dx = e.touches[0].clientX - touchRef.current.startX;
+    const dy = e.touches[0].clientY - touchRef.current.startY;
+    if (!touchRef.current.locked) {
+      if (Math.abs(dy) > Math.abs(dx)) { touchRef.current = null; return; }
+      touchRef.current.locked = true;
+    }
+    if (dx < 0) setSwipeX(Math.max(dx, -90));
+  };
+  const handleTouchEnd = () => {
+    if (swipeX < -60) {
+      setIsDeleting(true);
+      setTimeout(() => onDelete(), 320);
+    } else {
+      setSwipeX(0);
+    }
+    touchRef.current = null;
+  };
+
   const { dayNum, monthStr, yearStr } = useMemo(() => {
     try {
       const d = parseISO(
@@ -229,112 +256,132 @@ function SessionCard({
   }, [session.actual_date, session.scheduled_date]);
 
   return (
-    <div className="group relative flex items-center gap-1 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors">
-      {/* Colored left stripe by status */}
+    <div
+      className={`group relative flex items-center gap-1 rounded-xl border border-border bg-card overflow-hidden${isDeleting ? ' set-delete-slide' : ''}`}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ touchAction: 'pan-y' }}
+    >
+      {/* Red delete reveal */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-0.5 rounded-l-xl"
-        style={{
-          background:
-            session.status === 'completed'
-              ? 'hsl(var(--primary))'
-              : session.status === 'in_progress'
-              ? '#f97316'
-              : session.status === 'cancelled'
-              ? '#6b7280'
-              : '#3b82f6',
-        }}
-      />
-
-      <button
-        onClick={onView}
-        className="flex items-center gap-4 flex-1 pl-5 pr-3 py-3.5 text-left min-w-0"
+        className="absolute right-0 top-0 bottom-0 flex items-center justify-center bg-destructive transition-all"
+        style={{ width: Math.abs(swipeX) > 0 ? Math.abs(swipeX) : 0 }}
       >
-        {/* Date block */}
-        <div className="text-center w-10 shrink-0">
-          <div className="text-xl font-bold leading-none tabular-nums">{dayNum}</div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
-            {monthStr}
-          </div>
-          <div className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
-            {yearStr}
-          </div>
-        </div>
+        <Trash2 className="size-5 text-white" />
+      </div>
 
-        <div className="w-px h-9 bg-border shrink-0" />
-
-        {/* Info */}
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="font-semibold text-sm truncate">{session.name}</div>
-
-          {/* Sub-row: counts + muscle dots + HR */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {exerciseCount > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {exerciseCount} exercise{exerciseCount !== 1 ? 's' : ''}
-              </span>
-            )}
-            {vol > 0 && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Flame className="size-3 text-orange-400" />
-                {fmtVol(vol)} lbs
-              </span>
-            )}
-            {session.average_hr && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Heart className="size-3 text-rose-400" />
-                {session.average_hr} bpm
-              </span>
-            )}
-            {/* Muscle group dots */}
-            {muscleGroups.length > 0 && (
-              <div className="flex items-center gap-1">
-                {muscleGroups.slice(0, 5).map((mg) => (
-                  <span
-                    key={mg}
-                    title={MUSCLE_LABEL[mg] ?? mg}
-                    className="size-2 rounded-full shrink-0"
-                    style={{ background: MUSCLE_COLOR[mg] ?? MUSCLE_COLOR.other }}
-                  />
-                ))}
-                {muscleGroups.length > 5 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    +{muscleGroups.length - 5}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Status + chevron */}
-        <div className="flex items-center gap-2 shrink-0">
-          <Badge
-            variant={
+      {/* Card content — slides left on swipe */}
+      <div
+        className="relative flex items-center gap-1 w-full transition-transform hover:bg-muted/30"
+        style={{ transform: `translateX(${swipeX}px)`, transitionDuration: swipeX === 0 ? '200ms' : '0ms' }}
+      >
+        {/* Colored left stripe by status */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-0.5 rounded-l-xl"
+          style={{
+            background:
               session.status === 'completed'
-                ? 'default'
+                ? 'hsl(var(--primary))'
                 : session.status === 'in_progress'
-                ? 'outline'
-                : 'secondary'
-            }
-            className="text-xs"
-          >
-            {formatStatus(session.status)}
-          </Badge>
-          <ChevronRight className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-        </div>
-      </button>
+                ? '#f97316'
+                : session.status === 'cancelled'
+                ? '#6b7280'
+                : '#3b82f6',
+          }}
+        />
 
-      {/* Delete button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="pr-3 py-3.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
-        aria-label="Delete session"
-      >
-        <Trash2 className="size-4" />
-      </button>
+        <button
+          onClick={onView}
+          className="flex items-center gap-4 flex-1 pl-5 pr-3 py-3.5 text-left min-w-0"
+        >
+          {/* Date block */}
+          <div className="text-center w-10 shrink-0">
+            <div className="text-xl font-bold leading-none tabular-nums">{dayNum}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              {monthStr}
+            </div>
+            <div className="text-[10px] text-muted-foreground/60 tabular-nums mt-0.5">
+              {yearStr}
+            </div>
+          </div>
+
+          <div className="w-px h-9 bg-border shrink-0" />
+
+          {/* Info */}
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="font-semibold text-sm truncate">{session.name}</div>
+
+            {/* Sub-row: counts + muscle dots + HR */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {exerciseCount > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {exerciseCount} exercise{exerciseCount !== 1 ? 's' : ''}
+                </span>
+              )}
+              {vol > 0 && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Flame className="size-3 text-orange-400" />
+                  {fmtVol(vol)} lbs
+                </span>
+              )}
+              {session.average_hr && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Heart className="size-3 text-rose-400" />
+                  {session.average_hr} bpm
+                </span>
+              )}
+              {/* Muscle group dots */}
+              {muscleGroups.length > 0 && (
+                <div className="flex items-center gap-1">
+                  {muscleGroups.slice(0, 5).map((mg) => (
+                    <span
+                      key={mg}
+                      title={MUSCLE_LABEL[mg] ?? mg}
+                      className="size-2 rounded-full shrink-0"
+                      style={{ background: MUSCLE_COLOR[mg] ?? MUSCLE_COLOR.other }}
+                    />
+                  ))}
+                  {muscleGroups.length > 5 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{muscleGroups.length - 5}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Status + chevron */}
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge
+              variant={
+                session.status === 'completed'
+                  ? 'default'
+                  : session.status === 'in_progress'
+                  ? 'outline'
+                  : 'secondary'
+              }
+              className="text-xs"
+            >
+              {formatStatus(session.status)}
+            </Badge>
+            <ChevronRight className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </div>
+        </button>
+
+        {/* Delete button — desktop hover only */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="pr-3 py-3.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 md:flex hidden"
+          aria-label="Delete session"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
     </div>
   );
 }
