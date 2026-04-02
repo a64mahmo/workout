@@ -144,6 +144,67 @@ function RestTimer({
   );
 }
 
+// ── Inline rest timer (between rows inside exercise card) ─────────────────────
+function InlineRestTimer({
+  state,
+  onAdjust,
+  onDismiss,
+}: {
+  state: RestState;
+  onAdjust: (d: number) => void;
+  onDismiss: () => void;
+}) {
+  const { remaining, total } = state;
+  const pct = Math.max(0, (remaining / Math.max(total, 1)) * 100);
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const urgent = remaining <= 10 && remaining > 0;
+  const done = remaining === 0;
+
+  return (
+    <div className={cn(
+      'mx-3 my-2 rounded-xl overflow-hidden border',
+      urgent ? 'border-destructive/40 bg-destructive/5'
+        : done ? 'border-emerald-500/40 bg-emerald-500/5'
+        : 'border-primary/20 bg-primary/5',
+      'animate-in fade-in duration-200',
+    )}>
+      <div className="h-1 w-full bg-muted/50 overflow-hidden">
+        <div
+          className={cn('h-full transition-[width] duration-1000 ease-linear', done ? 'bg-emerald-500' : urgent ? 'bg-destructive' : 'bg-primary')}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Timer className="size-3.5 text-muted-foreground" />
+          <span className={cn('text-2xl font-bold tabular-nums leading-none', done ? 'text-emerald-500' : urgent ? 'text-destructive' : 'text-primary')}>
+            {mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `0:${String(remaining).padStart(2, '0')}`}
+          </span>
+        </div>
+        <div className="flex-1 flex items-center justify-center gap-1">
+          {[-30, -10, +10, +30].map(d => (
+            <button
+              key={d}
+              onClick={() => onAdjust(d)}
+              className="flex-1 h-8 rounded-lg bg-background/80 hover:bg-background text-xs font-semibold tabular-nums transition-colors border border-border/30"
+            >
+              {d > 0 ? `+${d}` : d}s
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={onDismiss}
+          className="shrink-0 flex flex-col items-center gap-0.5 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <SkipForward className="size-4" />
+          <span className="text-[9px] font-semibold uppercase tracking-wide">Skip</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Per-exercise rest control ─────────────────────────────────────────────────
 function RestControl({
   enabled,
@@ -276,6 +337,8 @@ function SetRow({
   isEditable,
   isBodyweight = false,
   canComplete,
+  isJustCompleted = false,
+  onSwipeRight,
 }: {
   set: ExerciseSet;
   isActive: boolean;
@@ -289,115 +352,151 @@ function SetRow({
   isEditable: boolean;
   isBodyweight?: boolean;
   canComplete?: boolean;
+  isJustCompleted?: boolean;
+  onSwipeRight?: () => void;
 }) {
+  const [swipeX, setSwipeX] = useState(0);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+      setSwipeX(Math.max(-120, Math.min(120, dx)));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeX < -80) onDelete();
+    else if (swipeX > 80) onSwipeRight?.();
+    setSwipeX(0);
+    touchStartRef.current = null;
+  };
+
+  const swipeOpacity = Math.min(1, Math.abs(swipeX) / 80);
+  const contentStyle: React.CSSProperties = {
+    transform: `translateX(${swipeX}px)`,
+    transition: swipeX === 0 ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
+  };
+
   // Completed sets or non-editable → read-only view
   if (set.is_completed || !isEditable) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border/20 first:border-t-0 group">
-        {/* Tap checkmark to uncheck (only when editable) */}
-        {isEditable ? (
-          <button
-            onClick={onUncheck}
-            disabled={isUnchecking}
-            className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors"
-            title="Tap to edit"
-          >
-            {isUnchecking
-              ? <Circle className="size-5 animate-pulse" />
-              : set.is_completed ? <CheckCircle2 className="size-5" /> : <Circle className="size-5 text-muted-foreground/30" />}
-          </button>
-        ) : (
-          set.is_completed
-            ? <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
-            : <Circle className="size-5 text-muted-foreground/30 shrink-0" />
-        )}
-        <span className="w-5 text-xs text-muted-foreground tabular-nums text-center shrink-0">
-          {set.set_number}
-        </span>
-        <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
-          {set.reps} reps{!isBodyweight ? ` × ${set.weight} lbs` : ''}{set.rpe ? ` @ ${set.rpe}` : ''}
-        </span>
-        {isEditable && (
-          <button onClick={onDelete}
-            className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
-            <X className="size-3.5" />
-          </button>
-        )}
+      <div
+        className="relative overflow-hidden border-t border-border/20 first:border-t-0"
+        style={{ touchAction: 'pan-y' }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Delete bg (swipe left) */}
+        <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
+          <X className="size-5 text-white" />
+        </div>
+        {/* Replace bg (swipe right) */}
+        <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
+          <Dumbbell className="size-5 text-primary-foreground" />
+        </div>
+        <div
+          className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}
+          style={contentStyle}
+        >
+          {isEditable ? (
+            <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
+              {isUnchecking ? <Circle className="size-5 animate-pulse" /> : set.is_completed ? <CheckCircle2 className="size-5" /> : <Circle className="size-5 text-muted-foreground/30" />}
+            </button>
+          ) : (
+            set.is_completed ? <CheckCircle2 className="size-5 text-emerald-500 shrink-0" /> : <Circle className="size-5 text-muted-foreground/30 shrink-0" />
+          )}
+          <span className="w-5 text-xs text-muted-foreground tabular-nums text-center shrink-0">{set.set_number}</span>
+          <span className={cn('flex-1 text-sm text-muted-foreground/70 tabular-nums', set.is_completed && 'line-through')}>
+            {set.reps} reps{!isBodyweight ? ` × ${set.weight} lbs` : ''}{set.rpe ? ` @ ${set.rpe}` : ''}
+          </span>
+          {isEditable && (
+            <button onClick={onDelete} className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0">
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
   // Editable staged row
   return (
-    <div className={cn(
-      'flex items-center gap-2 px-3 py-2 border-t border-border/20 first:border-t-0 transition-colors',
-      isActive && 'bg-primary/5',
-    )}>
-      <button
-        onClick={onComplete}
-        disabled={!canComplete || isCompleting}
-        className="shrink-0 text-muted-foreground/30 hover:text-primary disabled:opacity-30 transition-colors"
-      >
-        <Circle className="size-5" />
-      </button>
-
-      <span className={cn(
-        'w-5 text-xs tabular-nums text-center shrink-0 font-semibold',
-        isActive ? 'text-primary' : 'text-muted-foreground',
-      )}>
-        {set.set_number}
-      </span>
-
-      <div className="relative flex-1">
-        <Input
-          type="number" inputMode="numeric"
-          value={editVal.reps}
-          onChange={e => onEdit('reps', e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-          className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
-          placeholder="—"
-        />
-        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
+    <div
+      className="relative overflow-hidden border-t border-border/20 first:border-t-0"
+      style={{ touchAction: 'pan-y' }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Delete bg (swipe left) */}
+      <div className="absolute inset-0 bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swipeX < 0 ? swipeOpacity : 0 }}>
+        <X className="size-5 text-white" />
       </div>
+      {/* Replace bg (swipe right) */}
+      <div className="absolute inset-0 bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swipeX > 0 ? swipeOpacity : 0 }}>
+        <Dumbbell className="size-5 text-primary-foreground" />
+      </div>
+      <div
+        className={cn('flex items-center gap-2 px-3 py-2 bg-card transition-colors', isActive && 'bg-primary/5')}
+        style={contentStyle}
+      >
+        <button onClick={onComplete} disabled={!canComplete || isCompleting} className="shrink-0 text-muted-foreground/30 hover:text-primary disabled:opacity-30 transition-colors">
+          <Circle className="size-5" />
+        </button>
 
-      {!isBodyweight && (
+        <span className={cn('w-5 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
+          {set.set_number}
+        </span>
+
         <div className="relative flex-1">
           <Input
-            type="number" inputMode="decimal"
-            value={editVal.weight}
-            onChange={e => onEdit('weight', e.target.value)}
+            type="number" inputMode="numeric"
+            value={editVal.reps}
+            onChange={e => onEdit('reps', e.target.value)}
             onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-            className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background')}
+            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background')}
             placeholder="—"
           />
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
         </div>
-      )}
 
-      <div className="w-12 shrink-0">
-        <Input
-          type="number" inputMode="decimal"
-          value={editVal.rpe}
-          onChange={e => onEdit('rpe', e.target.value)}
-          className="h-9 text-sm text-center px-1"
-          placeholder="RPE"
-        />
-      </div>
-
-      <button
-        onClick={onComplete}
-        disabled={!canComplete || isCompleting}
-        className={cn(
-          'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
-          canComplete
-            ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95'
-            : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
+        {!isBodyweight && (
+          <div className="relative flex-1">
+            <Input
+              type="number" inputMode="decimal"
+              value={editVal.weight}
+              onChange={e => onEdit('weight', e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
+              className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background')}
+              placeholder="—"
+            />
+            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
+          </div>
         )}
-      >
-        {isCompleting
-          ? <span className="text-xs animate-pulse">…</span>
-          : <CheckCircle2 className="size-4" />}
-      </button>
+
+        <div className="w-12 shrink-0">
+          <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
+        </div>
+
+        <button
+          onClick={onComplete}
+          disabled={!canComplete || isCompleting}
+          className={cn(
+            'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
+            canComplete ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95' : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
+          )}
+        >
+          {isCompleting ? <span className="text-xs animate-pulse">…</span> : <CheckCircle2 className="size-4" />}
+        </button>
+      </div>
     </div>
   );
 }
@@ -473,11 +572,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Active rest timer state
   const [rest, setRest] = useState<RestState>({ active: false, remaining: 0, total: 0 });
+  const [restTimerSeId, setRestTimerSeId] = useState<string | null>(null);
+  const [justCompletedSetId, setJustCompletedSetId] = useState<string | null>(null);
+  const [replaceExerciseSeId, setReplaceExerciseSeId] = useState<string | null>(null);
+  const [replaceExerciseSearch, setReplaceExerciseSearch] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const startRest = useCallback((duration: number) => {
+  const startRest = useCallback((duration: number, seId: string) => {
     if (timerRef.current) clearInterval(timerRef.current);
     setRest({ active: true, remaining: duration, total: duration });
+    setRestTimerSeId(seId);
     timerRef.current = setInterval(() => {
       setRest(prev => {
         if (prev.remaining <= 1) {
@@ -492,6 +596,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const dismissRest = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     setRest({ active: false, remaining: 0, total: 0 });
+    setRestTimerSeId(null);
   }, []);
 
   const adjustRest = useCallback((delta: number) => {
@@ -583,6 +688,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     ex => !addedIds.has(ex.id) && ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
   ) ?? [];
 
+  const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id;
+  const replaceFilteredExercises = allExercises?.filter(
+    ex => ex.id !== replaceCurrentExerciseId && ex.name.toLowerCase().includes(replaceExerciseSearch.toLowerCase())
+  ) ?? [];
+
   const totalVolume = useMemo(
     () => session?.exercises.reduce(
       (t, se) => t + se.sets.filter(s => s.is_completed).reduce((sv, s) => sv + s.reps * s.weight, 0), 0
@@ -661,8 +771,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
       setSetEdits(prev => { const n = { ...prev }; delete n[vars.setId]; return n; });
+      setJustCompletedSetId(vars.setId);
+      setTimeout(() => setJustCompletedSetId(null), 700);
       const cfg = restConfig[vars.seId] ?? { enabled: true, duration: 90 };
-      if (cfg.enabled) startRest(cfg.duration);
+      if (cfg.enabled) startRest(cfg.duration, vars.seId);
     },
   });
 
@@ -691,6 +803,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const deleteSetMutation = useMutation({
     mutationFn: async (setId: string) => { await api.delete(`/api/sessions/exercise-sets/${setId}`); },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['session', id] }),
+  });
+
+  const replaceExerciseMutation = useMutation({
+    mutationFn: async ({ oldSeId, newExerciseId }: { oldSeId: string; newExerciseId: string }) => {
+      const orderIndex = session?.exercises.findIndex(se => se.id === oldSeId) ?? 0;
+      await api.delete(`/api/sessions/session-exercises/${oldSeId}`);
+      const res = await api.post(`/api/sessions/${id}/exercises`, { exercise_id: newExerciseId, order_index: orderIndex });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      setReplaceExerciseSeId(null);
+      setReplaceExerciseSearch('');
+    },
   });
 
   const completeMutation = useMutation({
@@ -1098,6 +1224,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                         editVal={edit}
                         isEditable={isEditing}
                         isBodyweight={isBodyweight}
+                        isJustCompleted={s.id === justCompletedSetId}
                         onEdit={(field, val) => updateEdit(s.id, field, val)}
                         onComplete={() => {
                           const reps = parseInt(edit.reps);
@@ -1121,6 +1248,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                           })
                         }
                         onDelete={() => deleteSetMutation.mutate(s.id)}
+                        onSwipeRight={() => setReplaceExerciseSeId(se.id)}
                         isCompleting={completeSetMutation.isPending && completeSetMutation.variables?.setId === s.id}
                         isUnchecking={uncompleteSetMutation.isPending && uncompleteSetMutation.variables?.setId === s.id}
                         canComplete={canComplete}
@@ -1128,6 +1256,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     );
                   })}
                 </div>
+
+                {/* Inline rest timer */}
+                {rest.active && restTimerSeId === se.id && (
+                  <InlineRestTimer state={rest} onAdjust={adjustRest} onDismiss={dismissRest} />
+                )}
 
                 {/* Add Set */}
                 <div className="px-3 py-2 border-t border-border/20">
@@ -1178,6 +1311,29 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </DialogContent>
       </Dialog>
       )}
+
+      {/* ── Replace Exercise ──────────────────────────────────────────────── */}
+      <Dialog open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>Replace Exercise</DialogTitle></DialogHeader>
+          <div className="mt-2 space-y-3">
+            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} autoFocus />
+            <div className="max-h-72 overflow-y-auto -mx-1">
+              {replaceFilteredExercises.length === 0
+                ? <p className="text-sm text-muted-foreground py-6 text-center">{replaceExerciseSearch ? 'No matches' : 'Loading…'}</p>
+                : replaceFilteredExercises.map(ex => (
+                    <button key={ex.id}
+                      onClick={() => replaceExerciseMutation.mutate({ oldSeId: replaceExerciseSeId!, newExerciseId: ex.id })}
+                      disabled={replaceExerciseMutation.isPending}
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors flex items-center justify-between gap-3">
+                      <span className="font-medium text-sm">{ex.name}</span>
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
+                    </button>
+                  ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
       {isEditing && (
@@ -1374,10 +1530,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {/* ── Rest timer (floating) ─────────────────────────────────────────── */}
-      {rest.active && (
-        <RestTimer state={rest} onAdjust={adjustRest} onDismiss={dismissRest} />
-      )}
     </div>
   );
 }
