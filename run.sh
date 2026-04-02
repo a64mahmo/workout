@@ -11,7 +11,7 @@ echo "Starting backend (FastAPI)..."
 cd backend
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."
-    python -m venv venv
+    python3 -m venv venv
 fi
 source venv/bin/activate
 pip install -q -r requirements.txt 2>/dev/null || true
@@ -30,6 +30,10 @@ cd ../frontend
 
 # Start frontend
 echo "Starting frontend (Next.js)..."
+if [ ! -d "node_modules" ]; then
+    echo "Installing frontend dependencies..."
+    npm install
+fi
 npm run dev &
 FRONTEND_PID=$!
 

@@ -301,9 +301,15 @@ export default function PlanDetailPage({ params }: { params: Promise<{ id: strin
         }
       }
     },
-    onSuccess: () => {
-      setInitialized(false); // force re-init from fresh server data
-      queryClient.invalidateQueries({ queryKey: ['plan', id] });
+    onSuccess: async () => {
+      const fresh = await queryClient.fetchQuery<WorkoutPlan>({
+        queryKey: ['plan', id],
+        queryFn: async () => { const res = await api.get(`/api/plans/${id}`); return res.data; },
+      });
+      setDraft(planToDraft(fresh));
+      setDraftName(fresh.name);
+      setDraftDesc(fresh.description ?? '');
+      setPendingWeeks(0);
     },
   });
 
@@ -652,7 +658,7 @@ export default function PlanDetailPage({ params }: { params: Promise<{ id: strin
 
       {/* ── Unsaved changes bar ─────────────────────────────────────────────── */}
       {isDirty && (
-        <div className="fixed bottom-0 inset-x-0 z-40 bg-background border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-4 py-3">
+        <div className="fixed bottom-16 md:bottom-0 inset-x-0 z-40 bg-background border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-4 py-3">
           <div className="flex items-center gap-3 max-w-xl mx-auto">
             <p className="text-sm text-muted-foreground flex-1">Unsaved changes</p>
             <Button variant="outline" onClick={discard} disabled={saveMutation.isPending}>

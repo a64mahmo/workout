@@ -22,15 +22,16 @@ A full-stack workout tracking app with training cycle management, session loggin
 ## Features
 
 - **Training cycles** — Meso/micro cycle planning with goal tracking (Strength, Hypertrophy, Endurance)
-- **Sessions** — Create, log, and complete workouts with real-time set tracking and rest timers
+- **Sessions** — Create, log, and complete workouts with real-time set tracking, rest timers, and a live workout timer
 - **Session analytics** — Volume/session-count chart (8W / 6M / 1Y), stats strip, muscle group suggestions, month navigator
 - **Exercise history** — Per-exercise progression view with set-by-set breakdown
 - **Plans** — Reusable workout templates organised by weeks (Week 1 / Week 2 / ...) with draft-based editing — nothing commits to the database until you hit Save; bodyweight exercises hide weight fields throughout
 - **Exercises** — Global exercise library with muscle group and Weighted / Bodyweight category; inline edit dialog from the exercises page
-- **Suggestions** — RP-style weight algorithm using top-set reference, RPE-calibrated hypertrophy thresholds, and session-over-session progression; meso-cycle-aware to avoid data pollution across programs; every suggestion is logged per-user in `suggestion_logs`
+- **AI Suggestions** — RP-style weight algorithm using top-set reference, RPE-calibrated hypertrophy thresholds, and session-over-session progression; shown inline per exercise during sessions with one-tap apply/undo; meso-cycle-aware; every suggestion is logged per-user in `suggestion_logs`
 - **Fitbit** — Sync steps, heart rate, sleep, and weight; today's stats on dashboard and sessions page
 - **Auth** — Secure JWT login/register with rate limiting and OWASP-compliant password rules
 - **Data import** — Bulk import workout history from the Strong app via CSV (`seed_all.py`)
+- **Mobile-first UI** — Fixed bottom navigation (Dashboard · Sessions · + · Exercises · More), full-screen session experience with slide-up transition, scroll-driven title fade, swipe-to-delete sets, swipe-to-replace exercises
 
 ---
 
