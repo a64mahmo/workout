@@ -4,6 +4,61 @@ All notable changes to this project are documented here.
 
 ---
 
+## [Unreleased] — 2026-04-02
+
+### Added
+
+#### Mobile navigation — bottom bar
+- Fixed bottom nav bar replaces the hamburger/top menu on mobile
+- Layout: **Dashboard | Sessions | [+] | Exercises | More** — `+` centered
+- `+` button creates a new session immediately and navigates to it
+- **More drawer** slides up above the nav bar with: Suggestions, Plans, Cycles, Settings, theme toggle, sign out
+- Top nav hidden on mobile (`md:block` only)
+- Bottom nav slides away (`translateY(100%)`) when entering a session detail page — full-screen workout experience
+- Safe-area inset applied (`env(safe-area-inset-bottom)`) so the bar fills to the screen edge on iPhone
+
+#### Session page — redesigned mobile UX
+- **Page transition**: session detail slides up from below on open (`slideUpPage` animation)
+- **Header**: single-row 3-column grid — `[←]` left · `[timer]` center · `[Finish/Start/Edit]` right
+- **Session title + date** moved out of the header into the page body above exercises — large, readable, no card wrapper
+- **Scroll-driven title fade**: title drifts up and fades to transparent as the user scrolls down; gracefully returns on scroll up
+- **Live workout timer** shown in header center when session is `in_progress`; timer does not start until the first exercise or template is added; resets reference time on first add
+- **Finish button** is green with a checkmark icon for clear affordance
+
+#### Session page — AI weight suggestions
+- Suggestion strip lives inside the exercise header, below the exercise name — no extra row
+- **Amber colour** for unnapplied suggestions; **green + checkmark** when applied
+- One tap applies the suggested weight to all uncompleted sets; tap again to undo (sets cleared, strip returns to amber)
+- `tap to undo` hint shown when applied
+- Strip hidden entirely when `suggested_weight === 0` (no history for the exercise)
+- `suggestion-apply-pop` bounce animation on apply; `suggestion-undo-shake` wiggle on undo
+
+#### Session page — set interactions
+- **Swipe left on set row** reveals a red trash icon and deletes the set; `set-delete-slide` animation collapses the row before removal
+- Swipe left removed from exercise card — only swipe right (replace exercise) remains on the card
+- Set completion `set-completed-pop` bounce retained
+
+#### Session page — exercise search dialogs
+- Add Exercise and Replace Exercise dialogs use `max-h-[80dvh]` (dynamic viewport height) so they resize when the keyboard opens
+- `autoFocus` removed from search inputs — keyboard no longer blasts open immediately on mobile
+- List area uses `flex-1 overflow-y-auto` so the search bar stays pinned while results scroll
+
+#### Plans page — unsaved changes bar
+- Bar now positions at `bottom-16` on mobile (above the bottom nav) and `bottom-0` on desktop
+
+#### Apply Plan Template
+- Template dialog no longer requires the session to be in Edit mode to open
+- Dialog is no longer conditionally rendered based on `isEditing` — stays mounted independently
+- Error feedback shown inline when the apply API call fails
+- Fixed: session rename after apply used `PATCH` which returned 405 — changed to `PUT`
+
+### Changed
+
+- All scrollbars hidden on mobile via global `@media (max-width: 768px)` rule covering `-webkit-scrollbar`, `scrollbar-width`, and `-ms-overflow-style`
+- `.scrollbar-none` utility class now has explicit cross-browser CSS (was relying on a missing Tailwind plugin)
+
+---
+
 ## [Unreleased] — 2026-03-30
 
 ### Added

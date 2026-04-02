@@ -38,6 +38,8 @@ import {
   Pencil,
   Trophy,
   Clock,
+  Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn, formatStatus } from '@/lib/utils';
@@ -349,30 +351,75 @@ function SetRow({
     ? (isBodyweight ? `${prevSet.reps}` : `${prevSet.weight}×${prevSet.reps}`)
     : '—';
 
+  const [swipeX, setSwipeX] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeOp = Math.min(1, Math.abs(swipeX) / 60);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchRef.current || isDeleting) return;
+    const dx = e.touches[0].clientX - touchRef.current.x;
+    const dy = e.touches[0].clientY - touchRef.current.y;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6)
+      setSwipeX(Math.max(-90, Math.min(0, dx)));
+  };
+  const handleTouchEnd = () => {
+    if (swipeX < -60) {
+      setIsDeleting(true);
+      setTimeout(() => onDelete(), 320);
+    } else {
+      setSwipeX(0);
+    }
+    touchRef.current = null;
+  };
+
+  const rowContent = (inner: React.ReactNode) => (
+    <div className={cn('relative overflow-hidden', isDeleting && 'set-delete-slide')} style={{ touchAction: 'pan-y' }}
+      onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+      {/* Delete reveal */}
+      <div className="absolute inset-y-0 right-0 w-20 bg-destructive flex items-center justify-center pointer-events-none rounded-r-none"
+        style={{ opacity: swipeOp }}>
+        <Trash2 className="size-4 text-white" />
+      </div>
+      {/* Row */}
+      <div style={{
+        transform: `translateX(${swipeX}px)`,
+        transition: swipeX === 0 ? 'transform 0.2s ease' : 'none',
+      }}>
+        {inner}
+      </div>
+    </div>
+  );
+
   // ── Completed / read-only ──
   if (set.is_completed || !isEditable) {
     return (
       <div className="border-t border-border/20 first:border-t-0">
-        <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}>
-          <span className="w-6 text-xs text-muted-foreground tabular-nums text-center shrink-0 font-medium">{set.set_number}</span>
-          <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
-          {!isBodyweight && (
+        {rowContent(
+          <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}>
+            <span className="w-6 text-xs text-muted-foreground tabular-nums text-center shrink-0 font-medium">{set.set_number}</span>
+            <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
+            {!isBodyweight && (
+              <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
+                {set.weight}
+              </span>
+            )}
             <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
-              {set.weight}
+              {set.reps}
             </span>
-          )}
-          <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
-            {set.reps}
-          </span>
-          <span className="w-12 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
-          {isEditable ? (
-            <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 w-9 flex justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
-              {isUnchecking ? <Circle className="size-5 animate-pulse" /> : <CheckCircle2 className="size-5" />}
-            </button>
-          ) : (
-            <span className="w-9 flex justify-center shrink-0"><CheckCircle2 className="size-5 text-emerald-500" /></span>
-          )}
-        </div>
+            <span className="w-12 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
+            {isEditable ? (
+              <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 w-9 flex justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
+                {isUnchecking ? <Circle className="size-5 animate-pulse" /> : <CheckCircle2 className="size-5" />}
+              </button>
+            ) : (
+              <span className="w-9 flex justify-center shrink-0"><CheckCircle2 className="size-5 text-emerald-500" /></span>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -380,53 +427,55 @@ function SetRow({
   // ── Editable staged row ──
   return (
     <div className={cn('border-t border-border/20 first:border-t-0', isActive && 'bg-primary/5')}>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className={cn('w-6 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
-          {set.set_number}
-        </span>
-        <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
+      {rowContent(
+        <div className={cn('flex items-center gap-2 px-3 py-2', isActive && 'bg-primary/5')}>
+          <span className={cn('w-6 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
+            {set.set_number}
+          </span>
+          <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
 
-        {!isBodyweight && (
+          {!isBodyweight && (
+            <div className="relative flex-1">
+              <Input
+                type="number" inputMode="decimal"
+                value={editVal.weight}
+                onChange={e => onEdit('weight', e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
+                className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background', !editVal.weight && ghostVal?.weight && 'placeholder:text-foreground/50 placeholder:font-medium')}
+                placeholder={!editVal.weight && ghostVal?.weight ? ghostVal.weight : '—'}
+              />
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
+            </div>
+          )}
+
           <div className="relative flex-1">
             <Input
-              type="number" inputMode="decimal"
-              value={editVal.weight}
-              onChange={e => onEdit('weight', e.target.value)}
+              type="number" inputMode="numeric"
+              value={editVal.reps}
+              onChange={e => onEdit('reps', e.target.value)}
               onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-              className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background', !editVal.weight && ghostVal?.weight && 'placeholder:text-foreground/50 placeholder:font-medium')}
-              placeholder={!editVal.weight && ghostVal?.weight ? ghostVal.weight : '—'}
+              className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background', !editVal.reps && ghostVal?.reps && 'placeholder:text-foreground/50 placeholder:font-medium')}
+              placeholder={!editVal.reps && ghostVal?.reps ? ghostVal.reps : '—'}
             />
-            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
+            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
           </div>
-        )}
 
-        <div className="relative flex-1">
-          <Input
-            type="number" inputMode="numeric"
-            value={editVal.reps}
-            onChange={e => onEdit('reps', e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-            className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background', !editVal.reps && ghostVal?.reps && 'placeholder:text-foreground/50 placeholder:font-medium')}
-            placeholder={!editVal.reps && ghostVal?.reps ? ghostVal.reps : '—'}
-          />
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
+          <div className="w-12 shrink-0">
+            <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
+          </div>
+
+          <button
+            onClick={onComplete}
+            disabled={!canComplete || isCompleting}
+            className={cn(
+              'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
+              canComplete ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95' : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
+            )}
+          >
+            {isCompleting ? <span className="text-xs animate-pulse">…</span> : <CheckCircle2 className="size-4" />}
+          </button>
         </div>
-
-        <div className="w-12 shrink-0">
-          <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
-        </div>
-
-        <button
-          onClick={onComplete}
-          disabled={!canComplete || isCompleting}
-          className={cn(
-            'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
-            canComplete ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95' : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
-          )}
-        >
-          {isCompleting ? <span className="text-xs animate-pulse">…</span> : <CheckCircle2 className="size-4" />}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -486,6 +535,24 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const router = useRouter();
   const queryClient = useQueryClient();
 
+  const [elapsed, setElapsed] = useState(0);
+  const pageLoadTime = useRef(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(prev => prev + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const [titleOpacity, setTitleOpacity] = useState(1);
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+      const op = y <= 20 ? 1 : y >= 90 ? 0 : 1 - (y - 20) / 70;
+      setTitleOpacity(op);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState('');
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -538,8 +605,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   // Apply-plan state
   const [applyPlanOpen, setApplyPlanOpen] = useState(false);
   const [selectedPlanSessionId, setSelectedPlanSessionId] = useState('');
+  const [selectedPlanSessionName, setSelectedPlanSessionName] = useState('');
   const [suggestions, setSuggestions] = useState<ExerciseProgressionSuggestion[] | null>(null);
   const [overrides, setOverrides] = useState<Record<string, { weight: string; include: boolean }>>({});
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const { data: session, isLoading } = useQuery({
@@ -697,13 +766,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Exercise card swipe state
   const [exSwipeX, setExSwipeX] = useState<Record<string, number>>({});
+  const [suggestionFlash, setSuggestionFlash] = useState<Record<string, 'apply' | 'undo'>>({});
+
+  const flashSuggestion = (seId: string, type: 'apply' | 'undo') => {
+    setSuggestionFlash(prev => ({ ...prev, [seId]: type }));
+    setTimeout(() => setSuggestionFlash(prev => { const n = { ...prev }; delete n[seId]; return n; }), 400);
+  };
   const exTouchRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const getEdit = (s: ExerciseSet) => {
     const edit = setEdits[s.id] ?? {};
     return {
-      reps: edit.reps ?? (s.reps > 0 ? String(s.reps) : ''),
-      weight: edit.weight ?? (s.weight > 0 ? String(s.weight) : ''),
+      reps: edit.reps ?? '',
+      weight: edit.weight ?? '',
       rpe: edit.rpe ?? (s.rpe != null ? String(s.rpe) : ''),
     };
   };
@@ -723,6 +798,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       return res.data;
     },
     onSuccess: () => {
+      if ((session?.exercises.length ?? 0) === 0) pageLoadTime.current = Date.now();
       queryClient.invalidateQueries({ queryKey: ['session', id] });
       setAddExerciseOpen(false);
       setExerciseSearch('');
@@ -895,12 +971,23 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           include: overrides[s.plan_exercise_id]?.include ?? true,
         })),
       });
+      if (selectedPlanSessionName) {
+        await api.put(`/api/sessions/${id}`, { name: selectedPlanSessionName });
+      }
     },
     onSuccess: () => {
+      if ((session?.exercises.length ?? 0) === 0) pageLoadTime.current = Date.now();
       queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
       setApplyPlanOpen(false);
       setSuggestions(null);
       setSelectedPlanSessionId('');
+      setSelectedPlanSessionName('');
+      setApplyError(null);
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Failed to apply template. Please try again.';
+      setApplyError(msg);
     },
   });
 
@@ -942,77 +1029,94 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <div className="space-y-4 pb-36">
+    <div className="space-y-4 pb-36 slide-up-page">
 
       <ConfettiEffect active={isConfettiActive} />
 
-      {/* ── Sticky header ──────────────────────────────────────────────────── */}
-      <div className="sticky top-14 z-30 -mx-4 bg-background/95 backdrop-blur border-b px-4 py-3">
-        <div className="flex flex-col gap-2 max-w-3xl mx-auto sm:flex-row sm:items-center sm:gap-3">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
-            <Button variant="ghost" size="icon-sm" onClick={() => router.back()} className="shrink-0">
+      {/* ── Sticky header: ← | timer | action ─────────────────────────────── */}
+      <div className="sticky top-0 md:top-14 z-30 -mx-4 bg-background/95 backdrop-blur border-b px-3 py-2">
+        <div className="max-w-3xl mx-auto grid grid-cols-3 items-center">
+
+          {/* Left: back */}
+          <div className="flex justify-start">
+            <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
               <ChevronLeft className="size-4" />
             </Button>
-            <div className="flex-1 min-w-0">
-              <h1 className="font-bold text-base leading-tight truncate">{session.name}</h1>
-              <p className="text-xs text-muted-foreground">{dateStr}</p>
-            </div>
           </div>
-          <div className="flex items-center gap-2 justify-end">
-            {totalVolume > 0 && (
-              <div className="flex items-center gap-1.5 text-primary font-semibold text-sm shrink-0">
-                <Flame className="size-4" />
-                <span className="tabular-nums">
-                  {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs
+
+          {/* Center: live timer or status */}
+          <div className="flex justify-center">
+            {session.status === 'in_progress' && session.exercises.length > 0 ? (() => {
+              void elapsed;
+              const started = session.start_time
+                ? new Date(session.start_time + 'Z').getTime()
+                : pageLoadTime.current;
+              const liveSecs = Math.max(0, Math.floor((Date.now() - started) / 1000));
+              const h = Math.floor(liveSecs / 3600);
+              const m = Math.floor((liveSecs % 3600) / 60);
+              const s = liveSecs % 60;
+              const label = h > 0
+                ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+                : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+              return (
+                <span className="flex items-center gap-1 text-sm font-mono font-bold tabular-nums text-foreground">
+                  <Clock className="size-3.5 text-muted-foreground" />{label}
                 </span>
-              </div>
+              );
+            })() : (
+              <Badge variant={statusVariant} className="text-xs">{formatStatus(session.status)}</Badge>
             )}
-            <Badge variant={statusVariant} className="shrink-0">{formatStatus(session.status)}</Badge>
+          </div>
+
+          {/* Right: primary action */}
+          <div className="flex justify-end gap-1.5">
             {session.status === 'scheduled' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => cancelMutation.mutate()}
-                disabled={cancelMutation.isPending}
-                className="shrink-0"
-              >
-                {cancelMutation.isPending ? 'Cancelling…' : 'Cancel'}
+              <Button variant="ghost" size="sm" onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending} className="h-8 text-muted-foreground text-xs px-2">
+                Cancel
               </Button>
             )}
             {session.status === 'scheduled' && session.exercises.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => startMutation.mutate()}
-                disabled={startMutation.isPending}
-                className="shrink-0 gap-1.5"
-              >
-                {startMutation.isPending ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Play className="size-3.5" />
-                )}
+              <Button size="sm" onClick={() => startMutation.mutate()}
+                disabled={startMutation.isPending} className="h-8 gap-1">
+                {startMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
                 Start
               </Button>
             )}
             {session.status !== 'completed' && session.status !== 'cancelled' && completedSets > 0 && (
               <Button size="sm" onClick={() => setIsFinishDialogOpen(true)}
-                disabled={completeMutation.isPending} className="shrink-0">
-                {completeMutation.isPending ? 'Saving…' : 'Finish ✓'}
+                disabled={completeMutation.isPending}
+                className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white">
+                {completeMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+                Finish
               </Button>
             )}
             {isCompleted && (
-              <Button
-                variant={isEditing ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setIsEditing(!isEditing)}
-                className="shrink-0 gap-1.5"
-              >
+              <Button variant={isEditing ? 'default' : 'outline'} size="sm"
+                onClick={() => setIsEditing(!isEditing)} className="h-8 gap-1">
                 <Pencil className="size-3.5" />
                 {isEditing ? 'Lock' : 'Edit'}
               </Button>
             )}
           </div>
+
+        </div>
+      </div>
+
+      {/* ── Session title — fades out on scroll ────────────────────────────── */}
+      <div
+        style={{ opacity: titleOpacity, transform: `translateY(${(1 - titleOpacity) * -8}px)`, transition: 'none' }}
+        className="px-1 pt-1"
+      >
+        <h1 className="font-bold text-2xl leading-tight">{session.name}</h1>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-sm text-muted-foreground">{dateStr}</span>
+          {totalVolume > 0 && (
+            <span className="flex items-center gap-1 text-sm text-primary font-semibold">
+              <Flame className="size-3.5" />
+              {totalVolume >= 1000 ? `${(totalVolume / 1000).toFixed(1)}k` : totalVolume.toLocaleString()} lbs
+            </span>
+          )}
         </div>
       </div>
 
@@ -1120,6 +1224,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             <p className="font-semibold">No exercises yet</p>
             <p className="text-sm text-muted-foreground mt-1">Apply a plan template or add exercises manually</p>
           </div>
+          <Button variant="outline" className="gap-2" onClick={() => setApplyPlanOpen(true)}>
+            <TrendingUp className="size-4" />Apply Plan Template
+          </Button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1132,18 +1239,33 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? 90 };
             const suggestion = suggestionsMap[se.exercise_id];
 
-            // Compute ghost text: walk sets in order, propagate last non-empty value forward
+            // Compute ghost text.
+            // Baseline = first pending set's template value (s.weight / s.reps).
+            // A user-typed value only replaces the baseline if it is strictly higher.
             const ghostMap: Record<string, { weight?: string; reps?: string }> = {};
-            let lastGhostWeight = '';
-            let lastGhostReps = '';
+            const firstPendingSet = se.sets.find(s => !s.is_completed);
+            let lastGhostWeight = firstPendingSet && firstPendingSet.weight > 0 ? String(firstPendingSet.weight) : '';
+            let lastGhostReps   = firstPendingSet && firstPendingSet.reps   > 0 ? String(firstPendingSet.reps)   : '';
+
             for (const s of se.sets) {
               if (s.is_completed) continue;
               const edit = getEdit(s);
               const ghost: { weight?: string; reps?: string } = {};
-              if (!edit.weight && lastGhostWeight) ghost.weight = lastGhostWeight;
-              else if (edit.weight) lastGhostWeight = edit.weight;
-              if (!edit.reps && lastGhostReps) ghost.reps = lastGhostReps;
-              else if (edit.reps) lastGhostReps = edit.reps;
+
+              if (edit.weight) {
+                if (parseFloat(edit.weight) > parseFloat(lastGhostWeight || '0'))
+                  lastGhostWeight = edit.weight;
+              } else {
+                if (lastGhostWeight) ghost.weight = lastGhostWeight;
+              }
+
+              if (edit.reps) {
+                if (parseInt(edit.reps) > parseInt(lastGhostReps || '0'))
+                  lastGhostReps = edit.reps;
+              } else {
+                if (lastGhostReps) ghost.reps = lastGhostReps;
+              }
+
               if (ghost.weight || ghost.reps) ghostMap[s.id] = ghost;
             }
 
@@ -1163,20 +1285,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   const dx = e.touches[0].clientX - start.x;
                   const dy = e.touches[0].clientY - start.y;
                   if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6)
-                    setExSwipeX(prev => ({ ...prev, [se.id]: Math.max(-110, Math.min(110, dx)) }));
+                    setExSwipeX(prev => ({ ...prev, [se.id]: Math.max(0, Math.min(110, dx)) }));
                 }}
                 onTouchEnd={() => {
                   const sw = exSwipeX[se.id] ?? 0;
-                  if (sw < -80) removeExerciseMutation.mutate(se.id);
-                  else if (sw > 80) setReplaceExerciseSeId(se.id);
+                  if (sw > 80) setReplaceExerciseSeId(se.id);
                   setExSwipeX(prev => { const n = { ...prev }; delete n[se.id]; return n; });
                   delete exTouchRef.current[se.id];
                 }}
               >
-                {/* Swipe backgrounds */}
-                <div className="absolute inset-0 rounded-xl bg-destructive flex items-center justify-end pr-5 pointer-events-none" style={{ opacity: swX < 0 ? swOp : 0 }}>
-                  <X className="size-6 text-white" />
-                </div>
+                {/* Swipe right = replace background only */}
                 <div className="absolute inset-0 rounded-xl bg-primary flex items-center pl-5 pointer-events-none" style={{ opacity: swX > 0 ? swOp : 0 }}>
                   <Dumbbell className="size-6 text-primary-foreground" />
                 </div>
@@ -1191,48 +1309,110 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 >
                 {/* Exercise header (tap for history) */}
                 <div
-                  role="button"
-                  tabIndex={0}
-                  className="w-full flex items-center justify-between px-4 py-3 border-b border-border/50 hover:bg-muted/30 transition-colors text-left cursor-pointer"
+                  className="border-b border-border/50"
                   onClick={() => toggleHistory(se.id)}
-                  onKeyDown={e => e.key === 'Enter' && toggleHistory(se.id)}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
-                      {se.exercise.muscle_group}
-                    </span>
-                    <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {totalCount > 0 && (
-                      <span className={cn(
-                        'text-xs tabular-nums font-medium px-1.5 py-0.5 rounded',
-                        completedCount === totalCount && totalCount > 0
-                          ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
-                          : 'text-muted-foreground',
-                      )}>
-                        {completedCount}/{totalCount}
+                  <div className="flex items-center justify-between px-4 pt-3 pb-2 cursor-pointer hover:bg-muted/30 transition-colors">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
+                        {se.exercise.muscle_group}
                       </span>
-                    )}
-                    {exVol > 0 && (
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {exVol >= 1000 ? `${(exVol / 1000).toFixed(1)}k` : exVol} lbs
-                      </span>
-                    )}
-                    {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
-                    {isEditing && (
-                    <button
-                      onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
-                      className="text-muted-foreground hover:text-destructive transition-colors ml-1"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                    )}
+                      <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {totalCount > 0 && (
+                        <span className={cn(
+                          'text-xs tabular-nums font-medium px-1.5 py-0.5 rounded',
+                          completedCount === totalCount && totalCount > 0
+                            ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                            : 'text-muted-foreground',
+                        )}>
+                          {completedCount}/{totalCount}
+                        </span>
+                      )}
+                      {exVol > 0 && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {exVol >= 1000 ? `${(exVol / 1000).toFixed(1)}k` : exVol} lbs
+                        </span>
+                      )}
+                      {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+                      {isEditing && (
+                        <button
+                          onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
+                          className="text-muted-foreground hover:text-destructive transition-colors ml-1"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
+
+                  {/* AI suggestion strip — below exercise name (hidden if no history) */}
+                  {suggestion && suggestion.suggested_weight > 0 && (() => {
+                    const pendingSets = se.sets.filter(s => !s.is_completed);
+                    const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
+                      (setEdits[s.id]?.weight ?? '') === String(suggestion.suggested_weight)
+                    );
+                    return (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (!isEditing) return;
+                          if (isApplied) {
+                            setSetEdits(prev => {
+                              const next = { ...prev };
+                              for (const s of se.sets) {
+                                if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: '' };
+                              }
+                              return next;
+                            });
+                            flashSuggestion(se.id, 'undo');
+                          } else {
+                            applyWeightSuggestion(se.id, suggestion.suggested_weight);
+                            flashSuggestion(se.id, 'apply');
+                          }
+                        }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-4 pb-2.5 text-left group',
+                          suggestionFlash[se.id] === 'apply' && 'suggestion-apply-pop',
+                          suggestionFlash[se.id] === 'undo' && 'suggestion-undo-shake',
+                        )}
+                        disabled={!isEditing}
+                      >
+                        <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : 'text-amber-500')} />
+                        <span className="text-xs text-muted-foreground">
+                          {isApplied ? (
+                            <>
+                              <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
+                              <span className="text-muted-foreground/60"> · {suggestion.suggested_weight} lbs</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{suggestion.suggested_weight} lbs</span>
+                              {suggestion.adjustment_reason && (
+                                <span className="text-muted-foreground/60"> · {suggestion.adjustment_reason}</span>
+                              )}
+                            </>
+                          )}
+                        </span>
+                        {isEditing && !isApplied && (
+                          <span className="ml-auto text-xs font-semibold text-amber-600 dark:text-amber-400 shrink-0 group-active:opacity-60">
+                            Apply →
+                          </span>
+                        )}
+                        {isApplied && isEditing && (
+                          <span className="ml-auto flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 shrink-0">
+                            <CheckCircle2 className="size-3.5" />
+                            <span className="text-muted-foreground/50 font-normal">tap to undo</span>
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
 
-                {/* Rest timer control + suggestion */}
-                <div className="flex items-center justify-between px-4 py-1.5 bg-muted/10 border-b border-border/20">
+                {/* Rest timer control */}
+                <div className="flex items-center px-4 py-1.5 bg-muted/10 border-b border-border/20">
                   <RestControl
                     enabled={cfg.enabled}
                     duration={cfg.duration}
@@ -1249,17 +1429,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       }))
                     }
                   />
-                  {isEditing && suggestion && (
-                    <button
-                      onClick={() => applyWeightSuggestion(se.id, suggestion.suggested_weight)}
-                      title={suggestion.adjustment_reason}
-                      className="flex items-center gap-1 text-xs text-primary/80 hover:text-primary transition-colors font-medium ml-2 shrink-0"
-                    >
-                      <TrendingUp className="size-3" />
-                      {suggestion.suggested_weight} lbs
-                    </button>
-                  )}
                 </div>
+
 
                 {/* History panel */}
                 <ExerciseHistoryPanel exerciseId={se.exercise_id} open={historyOpen} isBodyweight={se.exercise.category === 'bodyweight'} />
@@ -1356,8 +1527,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     Add Set
                   </button>
                 </div>
-                </div> {/* end inner card */}
-              </div> {/* end swipe wrapper */}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -1367,11 +1538,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       {isEditing && (
       <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
         <DialogTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Add Exercise</DialogTitle></DialogHeader>
-          <div className="mt-2 space-y-3">
-            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} autoFocus />
-            <div className="max-h-72 overflow-y-auto -mx-1">
+        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
+          <DialogHeader className="shrink-0"><DialogTitle>Add Exercise</DialogTitle></DialogHeader>
+          <div className="flex flex-col gap-3 min-h-0 flex-1">
+            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} className="shrink-0" />
+            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
               {filteredExercises.length === 0
                 ? <p className="text-sm text-muted-foreground py-6 text-center">{exerciseSearch ? 'No matches' : 'All exercises added'}</p>
                 : filteredExercises.map(ex => (
@@ -1390,11 +1561,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       {/* ── Replace Exercise ──────────────────────────────────────────────── */}
       <Dialog open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); } }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader><DialogTitle>Replace Exercise</DialogTitle></DialogHeader>
-          <div className="mt-2 space-y-3">
-            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} autoFocus />
-            <div className="max-h-72 overflow-y-auto -mx-1">
+        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
+          <DialogHeader className="shrink-0"><DialogTitle>Replace Exercise</DialogTitle></DialogHeader>
+          <div className="flex flex-col gap-3 min-h-0 flex-1">
+            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} className="shrink-0" />
+            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
               {replaceFilteredExercises.length === 0
                 ? <p className="text-sm text-muted-foreground py-6 text-center">{replaceExerciseSearch ? 'No matches' : 'Loading…'}</p>
                 : replaceFilteredExercises.map(ex => (
@@ -1412,13 +1583,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       </Dialog>
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
-      {isEditing && (
-      <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); } }}>
-        <DialogTrigger render={
-          <Button variant="ghost" className="w-full gap-2 text-muted-foreground">
-            <TrendingUp className="size-4" />Apply Plan Template
-          </Button>
-        } />
+      <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); } }}>
         <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Apply Workout Plan</DialogTitle></DialogHeader>
           <div className="mt-3 space-y-4">
@@ -1429,7 +1594,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   {userPlans?.flatMap(plan =>
                     plan.plan_sessions.map(ps => (
                       <button key={ps.id}
-                        onClick={() => { setSelectedPlanSessionId(ps.id); previewMutation.mutate(ps.id); }}
+                        onClick={() => { setSelectedPlanSessionId(ps.id); setSelectedPlanSessionName(ps.name); previewMutation.mutate(ps.id); }}
                         disabled={previewMutation.isPending}
                         className={cn('w-full text-left px-4 py-3 rounded-xl border transition-colors',
                           selectedPlanSessionId === ps.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50')}>
@@ -1490,8 +1655,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     );
                   })}
                 </div>
+                {applyError && (
+                  <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{applyError}</p>
+                )}
                 <div className="flex gap-2 pt-1">
-                  <Button variant="outline" className="flex-1" onClick={() => setSuggestions(null)}>← Back</Button>
+                  <Button variant="outline" className="flex-1" onClick={() => { setSuggestions(null); setApplyError(null); }}>← Back</Button>
                   <Button className="flex-1" onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending}>
                     {applyMutation.isPending ? 'Applying…' : `Stage ${suggestions.filter(s => overrides[s.plan_exercise_id]?.include !== false).length} Exercises`}
                   </Button>
@@ -1501,7 +1669,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </DialogContent>
       </Dialog>
-      )}
 
       {/* ── Fitbit Integration ────────────────────────────────────────────── */}
       {(session.status === 'completed' || session.status === 'cancelled') && (

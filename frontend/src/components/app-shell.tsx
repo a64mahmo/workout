@@ -17,7 +17,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
       <Navigation />
-      <main className="flex-1 container mx-auto px-4 py-6">
+      <main className={`flex-1 container mx-auto px-4 py-6 md:pb-6 ${pathname.startsWith('/sessions/') ? 'pb-6' : 'pb-24'}`}>
         {children}
       </main>
     </AuthGuard>
