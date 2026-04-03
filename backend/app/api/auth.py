@@ -10,6 +10,7 @@ from ..database import async_session
 from ..models.models import User
 from ..schemas import UserCreate, UserLogin, UserResponse, TokenResponse
 from ..deps import get_current_user_id, SECRET_KEY, ALGORITHM
+from ..services.program_seed import seed_programs_for_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -64,6 +65,14 @@ async def register(user: UserCreate, response: Response):
 
         token = _create_token(new_user.id)
         _set_auth_cookie(response, token)
+
+        # Seed default programs in the background — don't fail registration if this errors
+        try:
+            async with async_session() as seed_session:
+                await seed_programs_for_user(new_user.id, seed_session)
+        except Exception:
+            pass
+
         return TokenResponse(user_id=new_user.id, message="User registered successfully")
 
 

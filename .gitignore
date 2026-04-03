@@ -70,4 +70,3 @@ htmlcov/
 .stylelintcache
 
 *.csv
-seed_*.py
