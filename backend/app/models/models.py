@@ -74,6 +74,7 @@ class TrainingSession(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"))
     micro_cycle_id = Column(String, ForeignKey("micro_cycles.id"))
+    plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=True)
     name = Column(String, nullable=False)
     scheduled_date = Column(String)
     actual_date = Column(String)

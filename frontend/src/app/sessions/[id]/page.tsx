@@ -41,7 +41,7 @@ import {
   Trash2,
   Sparkles,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { cn, formatStatus } from '@/lib/utils';
 
 
@@ -993,6 +993,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     enabled: applyPlanOpen,
   });
 
+  const { data: plansProgress } = useQuery<Record<string, {
+    current_week: number;
+    last_completed_at: string | null;
+    last_session_name: string;
+    completed_session_ids: string[];
+  }>>({
+    queryKey: ['plans-progress'],
+    queryFn: async () => {
+      const res = await api.get('/api/plans/progress');
+      return res.data;
+    },
+    enabled: applyPlanOpen,
+  });
+
   const previewMutation = useMutation({
     mutationFn: async (planSessionId: string) => {
       const res = await api.get(`/api/plans/plan-sessions/${planSessionId}/preview`);
@@ -1740,7 +1754,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   <p className="text-sm text-muted-foreground text-center py-10">No programs yet. Create a plan first.</p>
                 )}
                 {userPlans?.map((plan, i) => {
-                  const weeks = Math.max(0, ...plan.plan_sessions.map(s => s.week_number));
+                  const totalWeeks = plan.plan_sessions.length > 0
+                    ? Math.max(...plan.plan_sessions.map(s => s.week_number)) : 0;
+                  const pp = plansProgress?.[plan.id];
                   return (
                     <button
                       key={plan.id}
@@ -1749,12 +1765,32 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       className="w-full text-left p-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/40 hover:shadow-sm active:scale-[0.98] transition-all duration-150 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
                     >
                       <div className="font-semibold text-base leading-snug">{plan.name}</div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{weeks} weeks</span>
-                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{plan.plan_sessions.length} sessions</span>
-                      </div>
-                      {plan.description && (
-                        <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{plan.description}</p>
+                      {pp ? (
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-primary">Week {pp.current_week} of {totalWeeks}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {new Set(pp.completed_session_ids).size}/{plan.plan_sessions.length}
+                            </span>
+                          </div>
+                          <div className="h-1 rounded-full bg-muted overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-primary"
+                              style={{ width: `${Math.min(100, Math.round(new Set(pp.completed_session_ids).size / plan.plan_sessions.length * 100))}%` }}
+                            />
+                          </div>
+                          {pp.last_completed_at && (
+                            <p className="text-xs text-muted-foreground">
+                              Last: {pp.last_session_name.replace(/^Week\s+\d+\s*[-–]\s*/i, '')}
+                              {' · '}{formatDistanceToNow(new Date(pp.last_completed_at), { addSuffix: true })}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{totalWeeks} weeks</span>
+                          <span className="text-xs bg-muted/60 text-muted-foreground/60 px-2 py-0.5 rounded-full">Not started</span>
+                        </div>
                       )}
                     </button>
                   );
@@ -1765,21 +1801,38 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             {/* Step 2 — Pick a week */}
             {selectedPlanId && selectedWeekNum === null && !suggestions && (() => {
               const plan = userPlans?.find(p => p.id === selectedPlanId);
+              const pp = plansProgress?.[plan?.id ?? ''];
+              const currentWeek = pp?.current_week ?? null;
+              const completedIds = new Set(pp?.completed_session_ids ?? []);
               const weeks = [...new Set(plan?.plan_sessions.map(s => s.week_number) ?? [])].sort((a, b) => a - b);
               return (
                 <div key="step-week" className="grid grid-cols-4 gap-2 animate-in fade-in slide-in-from-bottom-3 duration-200">
                   {weeks.map((wk, i) => {
                     const daySessions = plan?.plan_sessions.filter(s => s.week_number === wk) ?? [];
+                    const allDone = daySessions.length > 0 && daySessions.every(s => completedIds.has(s.id));
+                    const isCurrent = wk === currentWeek && !allDone;
                     return (
                       <button
                         key={wk}
                         onClick={() => setSelectedWeekNum(wk)}
                         style={{ animationDelay: `${i * 20}ms` }}
-                        className="flex flex-col items-center justify-center py-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/50 hover:shadow-sm active:scale-95 transition-all duration-150 gap-0.5 animate-in fade-in zoom-in-95 fill-mode-both"
+                        className={cn(
+                          'relative flex flex-col items-center justify-center py-4 rounded-2xl border hover:shadow-sm active:scale-95 transition-all duration-150 gap-0.5 animate-in fade-in zoom-in-95 fill-mode-both',
+                          isCurrent
+                            ? 'border-primary bg-primary/5 hover:bg-primary/10'
+                            : allDone
+                              ? 'border-border bg-muted/30 hover:bg-muted/50'
+                              : 'border-border hover:bg-muted/40 hover:border-primary/50'
+                        )}
                       >
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Wk</span>
-                        <span className="font-bold text-xl leading-none">{wk}</span>
-                        <span className="text-[10px] text-muted-foreground mt-1">{daySessions.length}d</span>
+                        {isCurrent && (
+                          <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[9px] font-semibold bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full leading-none">NOW</span>
+                        )}
+                        <span className={cn('text-[10px] uppercase tracking-wide', isCurrent ? 'text-primary' : 'text-muted-foreground')}>Wk</span>
+                        <span className={cn('font-bold text-xl leading-none', allDone && 'text-muted-foreground/50')}>{wk}</span>
+                        <span className={cn('text-[9px] mt-1', allDone ? 'text-emerald-500 font-medium' : 'text-muted-foreground')}>
+                          {allDone ? '✓ done' : `${daySessions.length}d`}
+                        </span>
                       </button>
                     );
                   })}
@@ -1790,27 +1843,37 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             {/* Step 3 — Pick a day */}
             {selectedPlanId && selectedWeekNum !== null && !selectedPlanSessionId && !suggestions && (() => {
               const plan = userPlans?.find(p => p.id === selectedPlanId);
+              const pp = plansProgress?.[plan?.id ?? ''];
+              const completedIds = new Set(pp?.completed_session_ids ?? []);
               const days = plan?.plan_sessions.filter(s => s.week_number === selectedWeekNum) ?? [];
               return (
                 <div key="step-day" className="space-y-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
                   {days.map((ps, i) => {
                     const label = ps.name.replace(/^Week\s+\d+\s*[-–]\s*/i, '');
+                    const done = completedIds.has(ps.id);
                     return (
                       <button
                         key={ps.id}
                         onClick={() => { setSelectedPlanSessionId(ps.id); setSelectedPlanSessionName(ps.name); previewMutation.mutate(ps.id); }}
                         disabled={previewMutation.isPending}
                         style={{ animationDelay: `${i * 50}ms` }}
-                        className="w-full text-left p-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/40 hover:shadow-sm active:scale-[0.98] transition-all duration-150 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                        className={cn(
+                          'w-full text-left p-4 rounded-2xl border hover:shadow-sm active:scale-[0.98] transition-all duration-150 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 fill-mode-both',
+                          done ? 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10' : 'border-border hover:bg-muted/40 hover:border-primary/40'
+                        )}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Day {i + 1}</div>
-                            <div className="font-semibold text-base leading-snug">{label}</div>
+                            <div className={cn('font-semibold text-base leading-snug', done && 'text-muted-foreground')}>{label}</div>
                           </div>
-                          <span className="shrink-0 text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full mt-1">
-                            {ps.exercises.length} ex
-                          </span>
+                          {done ? (
+                            <span className="shrink-0 text-xs text-emerald-600 dark:text-emerald-400 font-medium mt-1">✓ done</span>
+                          ) : (
+                            <span className="shrink-0 text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full mt-1">
+                              {ps.exercises.length} ex
+                            </span>
+                          )}
                         </div>
                       </button>
                     );
