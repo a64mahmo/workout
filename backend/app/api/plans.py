@@ -163,6 +163,41 @@ async def get_template(template_id: str):
     return templates.get(template_id, {"error": "Template not found"})
 
 
+@router.get("/progress")
+async def get_plans_progress(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return progress for all of the user's plans.
+    Maps plan_id → { current_week, last_completed_at, last_session_name, completed_session_ids }
+    """
+    result = await db.execute(
+        select(TrainingSession, PlanSession)
+        .join(PlanSession, TrainingSession.plan_session_id == PlanSession.id)
+        .where(
+            TrainingSession.user_id == user_id,
+            TrainingSession.plan_session_id.isnot(None),
+        )
+        .order_by(TrainingSession.actual_date.desc().nullslast(), TrainingSession.scheduled_date.desc())
+    )
+    rows = result.all()
+
+    progress: dict = {}
+    for ts, ps in rows:
+        plan_id = ps.plan_id
+        if plan_id not in progress:
+            progress[plan_id] = {
+                "current_week": ps.week_number,
+                "last_completed_at": ts.actual_date or ts.scheduled_date,
+                "last_session_name": ps.name,
+                "completed_session_ids": [],
+            }
+        progress[plan_id]["completed_session_ids"].append(ps.id)
+
+    return progress
+
+
 @router.get("/{plan_id}", response_model=PlanResponse)
 async def get_plan(
     plan_id: str,
@@ -503,38 +538,3 @@ async def apply_plan_session(
     await db.commit()
 
     return {"message": "Plan session applied"}
-
-
-@router.get("/progress")
-async def get_plans_progress(
-    user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Return progress for all of the user's plans.
-    Maps plan_id → { current_week, last_completed_at, last_session_name, completed_session_ids }
-    """
-    result = await db.execute(
-        select(TrainingSession, PlanSession)
-        .join(PlanSession, TrainingSession.plan_session_id == PlanSession.id)
-        .where(
-            TrainingSession.user_id == user_id,
-            TrainingSession.plan_session_id.isnot(None),
-        )
-        .order_by(TrainingSession.actual_date.desc().nullslast(), TrainingSession.scheduled_date.desc())
-    )
-    rows = result.all()
-
-    progress: dict = {}
-    for ts, ps in rows:
-        plan_id = ps.plan_id
-        if plan_id not in progress:
-            progress[plan_id] = {
-                "current_week": ps.week_number,
-                "last_completed_at": ts.actual_date or ts.scheduled_date,
-                "last_session_name": ps.name,
-                "completed_session_ids": [],
-            }
-        progress[plan_id]["completed_session_ids"].append(ps.id)
-
-    return progress
