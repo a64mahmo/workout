@@ -49,6 +49,7 @@ async def init_db():
         "ALTER TABLE suggestion_logs ADD COLUMN actual_weight REAL",
         "ALTER TABLE suggestion_logs ADD COLUMN actual_reps INTEGER",
         "ALTER TABLE suggestion_logs ADD COLUMN actual_rpe REAL",
+        "ALTER TABLE training_sessions ADD COLUMN plan_session_id TEXT REFERENCES plan_sessions(id)",
     ]
     for stmt in migrations:
         try:
