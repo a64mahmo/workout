@@ -612,6 +612,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Apply-plan state
   const [applyPlanOpen, setApplyPlanOpen] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [selectedWeekNum, setSelectedWeekNum] = useState<number | null>(null);
   const [selectedPlanSessionId, setSelectedPlanSessionId] = useState('');
   const [selectedPlanSessionName, setSelectedPlanSessionName] = useState('');
   const [suggestions, setSuggestions] = useState<ExerciseProgressionSuggestion[] | null>(null);
@@ -1645,90 +1647,258 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       )}
 
       {/* ── Apply Plan ─────────────────────────────────────────────────────── */}
-      <Dialog open={applyPlanOpen} onOpenChange={open => { setApplyPlanOpen(open); if (!open) { setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); } }}>
-        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Apply Workout Plan</DialogTitle></DialogHeader>
-          <div className="mt-3 space-y-4">
-            {!suggestions ? (
-              <>
-                <p className="text-sm text-muted-foreground">Pick a plan day — rest timers and targets will be inherited.</p>
-                <div className="space-y-2">
-                  {userPlans?.flatMap(plan =>
-                    plan.plan_sessions.map(ps => (
-                      <button key={ps.id}
-                        onClick={() => { setSelectedPlanSessionId(ps.id); setSelectedPlanSessionName(ps.name); previewMutation.mutate(ps.id); }}
-                        disabled={previewMutation.isPending}
-                        className={cn('w-full text-left px-4 py-3 rounded-xl border transition-colors',
-                          selectedPlanSessionId === ps.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50')}>
-                        <div className="font-medium text-sm">{ps.name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{plan.name} · {ps.exercises.length} exercises</div>
-                      </button>
-                    ))
-                  )}
-                  {!userPlans?.length && <p className="text-sm text-muted-foreground text-center py-6">No plans yet.</p>}
-                </div>
-                {previewMutation.isPending && (
-                  <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-muted animate-pulse" />)}</div>
+      <Dialog open={applyPlanOpen} onOpenChange={open => {
+        setApplyPlanOpen(open);
+        if (!open) {
+          setSuggestions(null);
+          setSelectedPlanId('');
+          setSelectedWeekNum(null);
+          setSelectedPlanSessionId('');
+          setSelectedPlanSessionName('');
+          setApplyError(null);
+        }
+      }}>
+        <DialogContent className="w-full max-w-lg h-[92dvh] max-h-[92dvh] flex flex-col p-0 gap-0 rounded-2xl overflow-hidden">
+
+          {/* ── Header ── */}
+          {(() => {
+            const activePlan = userPlans?.find(p => p.id === selectedPlanId);
+            const isReview = !!suggestions;
+            const isDay = !isReview && !!selectedPlanId && selectedWeekNum !== null;
+            const isWeek = !isReview && !!selectedPlanId && selectedWeekNum === null;
+            const isPlan = !isReview && !selectedPlanId;
+
+            return (
+              <div className="flex items-center gap-3 px-4 pt-5 pb-3 shrink-0">
+                {!isPlan && (
+                  <button
+                    onClick={() => {
+                      if (isReview) { setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); }
+                      else if (isDay) { setSelectedWeekNum(null); }
+                      else if (isWeek) { setSelectedPlanId(''); }
+                    }}
+                    className="shrink-0 size-9 flex items-center justify-center rounded-full hover:bg-muted transition-colors"
+                  >
+                    <ChevronLeft className="size-5" />
+                  </button>
                 )}
-              </>
-            ) : (
-              <>
-                <div>
-                  <p className="text-sm font-medium mb-0.5">Review & adjust</p>
-                  <p className="text-xs text-muted-foreground">Sets are staged — check them off one by one during your workout.</p>
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-semibold text-base leading-tight">
+                    {isPlan && 'Choose a Program'}
+                    {isWeek && activePlan?.name}
+                    {isDay && `Week ${selectedWeekNum}`}
+                    {isReview && 'Review & Adjust'}
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {isPlan && 'Select the program to pull from'}
+                    {isWeek && 'Which week are you on?'}
+                    {isDay && 'Pick today\'s session'}
+                    {isReview && 'Tweak weights, then stage your workout'}
+                  </p>
                 </div>
-                <div className="space-y-2.5">
-                  {suggestions.map(s => {
-                    const ov = overrides[s.plan_exercise_id] ?? { weight: '', include: true };
-                    return (
-                      <div key={s.plan_exercise_id}
-                        className={cn('rounded-xl border p-3 transition-colors',
-                          ov.include ? 'border-border bg-card' : 'border-border/40 bg-muted/30 opacity-60')}>
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <div className="font-medium text-sm">{s.exercise.name}</div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">{s.target_sets}×{s.target_reps}</span>
-                              <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                                <Timer className="size-3" />{fmtSecs(s.rest_seconds)}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setOverrides(prev => ({ ...prev, [s.plan_exercise_id]: { ...ov, include: !ov.include } }))}
-                            className={cn('text-xs px-2.5 py-1 rounded-lg font-medium transition-colors shrink-0',
-                              ov.include ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'bg-muted text-muted-foreground')}>
-                            {ov.include ? 'Include' : 'Skip'}
-                          </button>
-                        </div>
-                        {ov.include && s.exercise.category !== 'bodyweight' && (
-                          <div className="space-y-1">
-                            <div className="relative">
-                              <Input type="number" inputMode="decimal" value={ov.weight}
-                                onChange={e => setOverrides(prev => ({ ...prev, [s.plan_exercise_id]: { ...ov, weight: e.target.value } }))}
-                                className="h-8 text-sm pr-10" placeholder="Target weight" />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">lbs</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">{s.suggestion_reason}</p>
-                            {s.previous_weight && <p className="text-xs text-muted-foreground/60">Previous: {s.previous_weight} lbs</p>}
-                          </div>
-                        )}
+              </div>
+            );
+          })()}
+
+          {/* ── Breadcrumb ── */}
+          {(selectedPlanId || selectedWeekNum !== null || suggestions) && (() => {
+            const activePlan = userPlans?.find(p => p.id === selectedPlanId);
+            return (
+              <div className="flex items-center gap-1.5 px-4 pb-3 shrink-0">
+                <span
+                  className={cn('text-xs cursor-pointer', selectedWeekNum !== null || suggestions ? 'text-primary underline underline-offset-2' : 'text-muted-foreground')}
+                  onClick={() => { if (selectedWeekNum !== null || suggestions) { setSelectedWeekNum(null); setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); } }}
+                >{activePlan?.name}</span>
+                {selectedWeekNum !== null && (
+                  <>
+                    <span className="text-xs text-muted-foreground">/</span>
+                    <span
+                      className={cn('text-xs cursor-pointer', suggestions ? 'text-primary underline underline-offset-2' : 'text-muted-foreground')}
+                      onClick={() => { if (suggestions) { setSuggestions(null); setSelectedPlanSessionId(''); setSelectedPlanSessionName(''); setApplyError(null); } }}
+                    >Week {selectedWeekNum}</span>
+                  </>
+                )}
+                {suggestions && (
+                  <>
+                    <span className="text-xs text-muted-foreground">/</span>
+                    <span className="text-xs text-muted-foreground truncate max-w-[120px]">{selectedPlanSessionName.split(' - ').pop()}</span>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          <div className="h-px bg-border shrink-0" />
+
+          {/* ── Scrollable body ── */}
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+
+            {/* Step 1 — Pick a plan */}
+            {!selectedPlanId && !suggestions && (
+              <div key="step-plan" className="space-y-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                {!userPlans?.length && (
+                  <p className="text-sm text-muted-foreground text-center py-10">No programs yet. Create a plan first.</p>
+                )}
+                {userPlans?.map((plan, i) => {
+                  const weeks = Math.max(0, ...plan.plan_sessions.map(s => s.week_number));
+                  return (
+                    <button
+                      key={plan.id}
+                      onClick={() => setSelectedPlanId(plan.id)}
+                      style={{ animationDelay: `${i * 40}ms` }}
+                      className="w-full text-left p-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/40 hover:shadow-sm active:scale-[0.98] transition-all duration-150 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                    >
+                      <div className="font-semibold text-base leading-snug">{plan.name}</div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{weeks} weeks</span>
+                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{plan.plan_sessions.length} sessions</span>
                       </div>
+                      {plan.description && (
+                        <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{plan.description}</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Step 2 — Pick a week */}
+            {selectedPlanId && selectedWeekNum === null && !suggestions && (() => {
+              const plan = userPlans?.find(p => p.id === selectedPlanId);
+              const weeks = [...new Set(plan?.plan_sessions.map(s => s.week_number) ?? [])].sort((a, b) => a - b);
+              return (
+                <div key="step-week" className="grid grid-cols-4 gap-2 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                  {weeks.map((wk, i) => {
+                    const daySessions = plan?.plan_sessions.filter(s => s.week_number === wk) ?? [];
+                    return (
+                      <button
+                        key={wk}
+                        onClick={() => setSelectedWeekNum(wk)}
+                        style={{ animationDelay: `${i * 20}ms` }}
+                        className="flex flex-col items-center justify-center py-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/50 hover:shadow-sm active:scale-95 transition-all duration-150 gap-0.5 animate-in fade-in zoom-in-95 fill-mode-both"
+                      >
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Wk</span>
+                        <span className="font-bold text-xl leading-none">{wk}</span>
+                        <span className="text-[10px] text-muted-foreground mt-1">{daySessions.length}d</span>
+                      </button>
                     );
                   })}
                 </div>
-                {applyError && (
-                  <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{applyError}</p>
-                )}
-                <div className="flex gap-2 pt-1">
-                  <Button variant="outline" className="flex-1" onClick={() => { setSuggestions(null); setApplyError(null); }}>← Back</Button>
-                  <Button className="flex-1" onClick={() => applyMutation.mutate()} disabled={applyMutation.isPending}>
-                    {applyMutation.isPending ? 'Applying…' : `Stage ${suggestions.filter(s => overrides[s.plan_exercise_id]?.include !== false).length} Exercises`}
-                  </Button>
+              );
+            })()}
+
+            {/* Step 3 — Pick a day */}
+            {selectedPlanId && selectedWeekNum !== null && !selectedPlanSessionId && !suggestions && (() => {
+              const plan = userPlans?.find(p => p.id === selectedPlanId);
+              const days = plan?.plan_sessions.filter(s => s.week_number === selectedWeekNum) ?? [];
+              return (
+                <div key="step-day" className="space-y-3 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                  {days.map((ps, i) => {
+                    const label = ps.name.replace(/^Week\s+\d+\s*[-–]\s*/i, '');
+                    return (
+                      <button
+                        key={ps.id}
+                        onClick={() => { setSelectedPlanSessionId(ps.id); setSelectedPlanSessionName(ps.name); previewMutation.mutate(ps.id); }}
+                        disabled={previewMutation.isPending}
+                        style={{ animationDelay: `${i * 50}ms` }}
+                        className="w-full text-left p-4 rounded-2xl border border-border hover:bg-muted/40 hover:border-primary/40 hover:shadow-sm active:scale-[0.98] transition-all duration-150 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 fill-mode-both"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Day {i + 1}</div>
+                            <div className="font-semibold text-base leading-snug">{label}</div>
+                          </div>
+                          <span className="shrink-0 text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full mt-1">
+                            {ps.exercises.length} ex
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {previewMutation.isPending && (
+                    <div className="space-y-3 pt-1 animate-in fade-in duration-150">
+                      {[1,2,3,4].map(i => <div key={i} className="h-20 rounded-2xl bg-muted animate-pulse" />)}
+                    </div>
+                  )}
                 </div>
-              </>
+              );
+            })()}
+
+            {/* Step 4 — Review exercises */}
+            {suggestions && (
+              <div key="step-review" className="space-y-2.5 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                {suggestions.map((s, i) => {
+                  const ov = overrides[s.plan_exercise_id] ?? { weight: '', include: true };
+                  return (
+                    <div
+                      key={s.plan_exercise_id}
+                      style={{ animationDelay: `${i * 35}ms` }}
+                      className={cn(
+                        'rounded-2xl border p-4 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 fill-mode-both',
+                        ov.include ? 'border-border bg-card' : 'border-border/40 bg-muted/30 opacity-60'
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-sm leading-snug">{s.exercise.name}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-muted-foreground font-medium">{s.target_sets}×{s.target_reps || 'AMRAP'}</span>
+                            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
+                              <Timer className="size-3" />{fmtSecs(s.rest_seconds)}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setOverrides(prev => ({ ...prev, [s.plan_exercise_id]: { ...ov, include: !ov.include } }))}
+                          className={cn(
+                            'text-xs px-3 py-1.5 rounded-xl font-medium transition-all duration-150 shrink-0',
+                            ov.include ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                          )}
+                        >
+                          {ov.include ? 'In' : 'Skip'}
+                        </button>
+                      </div>
+                      {ov.include && s.exercise.category !== 'bodyweight' && (
+                        <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                          <div className="relative">
+                            <Input type="number" inputMode="decimal" value={ov.weight}
+                              onChange={e => setOverrides(prev => ({ ...prev, [s.plan_exercise_id]: { ...ov, weight: e.target.value } }))}
+                              className="h-10 text-sm pr-12" placeholder="Target weight" />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">lbs</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{s.suggestion_reason}</p>
+                          {s.previous_weight && <p className="text-xs text-muted-foreground/50">Last: {s.previous_weight} lbs</p>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {applyError && (
+                  <p className="text-xs text-destructive bg-destructive/10 rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-200">{applyError}</p>
+                )}
+              </div>
             )}
           </div>
+
+          {/* ── Sticky footer action (review step only) ── */}
+          {suggestions && (
+            <div className="shrink-0 px-4 py-4 border-t border-border bg-background animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <Button
+                className="w-full h-12 text-base font-semibold rounded-2xl transition-transform duration-150 active:scale-[0.98]"
+                onClick={() => applyMutation.mutate()}
+                disabled={applyMutation.isPending}
+              >
+                {applyMutation.isPending ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="size-4 animate-spin" />Applying…
+                  </span>
+                ) : (
+                  `Stage ${suggestions.filter(s => overrides[s.plan_exercise_id]?.include !== false).length} Exercises`
+                )}
+              </Button>
+            </div>
+          )}
+
         </DialogContent>
       </Dialog>
 
