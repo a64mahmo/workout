@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
+import { computeGhostMap } from '@/lib/ghost-map';
 import type {
   TrainingSession,
   Exercise,
@@ -68,7 +69,13 @@ function fmtSecs(s: number) {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface HistorySet { set_number: number; reps: number; weight: number; rpe?: number }
-interface HistoryEntry { session_date: string | null; session_name: string; sets: HistorySet[]; total_volume: number }
+interface HistoryEntry {
+  session_id: string; // added
+  session_date: string | null;
+  session_name: string;
+  sets: HistorySet[];
+  total_volume: number;
+}
 interface RestState { active: boolean; remaining: number; total: number }
 
 // ── Rest Timer (full-width bottom bar) ───────────────────────────────────────
@@ -399,24 +406,27 @@ function SetRow({
     return (
       <div className="border-t border-border/20 first:border-t-0">
         {rowContent(
-          <div className={cn('flex items-center gap-2 px-3 py-2.5 group bg-card', isJustCompleted && 'set-completed-pop')}>
-            <span className="w-6 text-xs text-muted-foreground tabular-nums text-center shrink-0 font-medium">{set.set_number}</span>
-            <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
+          <div className={cn('flex items-center gap-2 px-3 py-3 group bg-card', isJustCompleted && 'set-completed-pop')}>
+            {/* Set # + prev stacked */}
+            <div className="w-12 shrink-0 text-center">
+              <div className={cn('text-sm font-semibold tabular-nums', set.is_completed ? 'text-emerald-500' : 'text-muted-foreground')}>{set.set_number}</div>
+              <div className="text-[10px] text-muted-foreground/60 tabular-nums leading-tight">{prevLabel}</div>
+            </div>
             {!isBodyweight && (
-              <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
+              <span className={cn('flex-1 text-base tabular-nums text-center font-medium', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
                 {set.weight}
               </span>
             )}
-            <span className={cn('flex-1 text-sm tabular-nums text-center', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
+            <span className={cn('flex-1 text-base tabular-nums text-center font-medium', set.is_completed ? 'line-through text-muted-foreground/60' : 'text-muted-foreground')}>
               {set.reps}
             </span>
-            <span className="w-12 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
+            <span className="w-11 shrink-0 text-xs tabular-nums text-center text-muted-foreground/50">{set.rpe || '—'}</span>
             {isEditable ? (
-              <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 w-9 flex justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
+              <button onClick={onUncheck} disabled={isUnchecking} className="shrink-0 size-11 flex items-center justify-center text-emerald-500 hover:text-amber-500 transition-colors" title="Tap to edit">
                 {isUnchecking ? <Circle className="size-5 animate-pulse" /> : <CheckCircle2 className="size-5" />}
               </button>
             ) : (
-              <span className="w-9 flex justify-center shrink-0"><CheckCircle2 className="size-5 text-emerald-500" /></span>
+              <span className="size-11 flex items-center justify-center shrink-0"><CheckCircle2 className="size-5 text-emerald-500" /></span>
             )}
           </div>
         )}
@@ -428,11 +438,14 @@ function SetRow({
   return (
     <div className={cn('border-t border-border/20 first:border-t-0', isActive && 'bg-primary/5')}>
       {rowContent(
-        <div className={cn('flex items-center gap-2 px-3 py-2', isActive && 'bg-primary/5')}>
-          <span className={cn('w-6 text-xs tabular-nums text-center shrink-0 font-semibold', isActive ? 'text-primary' : 'text-muted-foreground')}>
-            {set.set_number}
-          </span>
-          <span className="flex-1 text-xs text-muted-foreground/50 tabular-nums text-center">{prevLabel}</span>
+        <div className={cn('flex items-center gap-1.5 px-2 py-1.5', isActive && 'bg-primary/5')}>
+          {/* Set # + prev stacked in a single narrow column */}
+          <div className="w-12 shrink-0 text-center">
+            <div className={cn('text-sm font-semibold tabular-nums leading-tight', isActive ? 'text-primary' : 'text-muted-foreground')}>
+              {set.set_number}
+            </div>
+            <div className="text-[10px] text-muted-foreground/60 tabular-nums leading-tight">{prevLabel}</div>
+          </div>
 
           {!isBodyweight && (
             <div className="relative flex-1">
@@ -441,7 +454,8 @@ function SetRow({
                 value={editVal.weight}
                 onChange={e => onEdit('weight', e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-                className={cn('h-9 text-sm text-center pr-6', isActive && 'border-primary/40 bg-background', !editVal.weight && ghostVal?.weight && 'placeholder:text-foreground/50 placeholder:font-medium')}
+                onFocus={e => e.target.select()}
+                className={cn('h-11 text-base text-center pr-7 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', isActive && 'border-primary/40 bg-background', !editVal.weight && ghostVal?.weight && 'placeholder:text-foreground/50 placeholder:font-medium')}
                 placeholder={!editVal.weight && ghostVal?.weight ? ghostVal.weight : '—'}
               />
               <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">lbs</span>
@@ -454,25 +468,26 @@ function SetRow({
               value={editVal.reps}
               onChange={e => onEdit('reps', e.target.value)}
               onKeyDown={e => e.key === 'Enter' && canComplete && onComplete()}
-              className={cn('h-9 text-sm text-center pr-7 font-medium', isActive && 'border-primary/40 bg-background', !editVal.reps && ghostVal?.reps && 'placeholder:text-foreground/50 placeholder:font-medium')}
+              onFocus={e => e.target.select()}
+              className={cn('h-11 text-base text-center pr-8 font-medium [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', isActive && 'border-primary/40 bg-background', !editVal.reps && ghostVal?.reps && 'placeholder:text-foreground/50 placeholder:font-medium')}
               placeholder={!editVal.reps && ghostVal?.reps ? ghostVal.reps : '—'}
             />
             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">reps</span>
           </div>
 
-          <div className="w-12 shrink-0">
-            <Input type="number" inputMode="decimal" value={editVal.rpe} onChange={e => onEdit('rpe', e.target.value)} className="h-9 text-sm text-center px-1" placeholder="RPE" />
+          <div className="w-11 shrink-0">
+            <Input type="number" inputMode="decimal" min={0} max={10} value={editVal.rpe} onChange={e => { const v = e.target.value; if (v === '' || parseFloat(v) >= 0) onEdit('rpe', v); }} onFocus={e => e.target.select()} className="h-11 text-sm text-center px-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" placeholder="RPE" />
           </div>
 
           <button
             onClick={onComplete}
             disabled={!canComplete || isCompleting}
             className={cn(
-              'shrink-0 size-9 rounded-lg flex items-center justify-center transition-all',
+              'shrink-0 size-11 rounded-xl flex items-center justify-center transition-all',
               canComplete ? 'bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95' : 'bg-muted text-muted-foreground opacity-40 cursor-not-allowed',
             )}
           >
-            {isCompleting ? <span className="text-xs animate-pulse">…</span> : <CheckCircle2 className="size-4" />}
+            {isCompleting ? <span className="text-sm animate-pulse">…</span> : <CheckCircle2 className="size-5" />}
           </button>
         </div>
       )}
@@ -730,15 +745,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     staleTime: 5 * 60_000,
   });
 
-  // Map: exerciseId → { setNumber → HistorySet } (most recent session only)
+  // Map: exerciseId → { setNumber → HistorySet } (most recent session only, excluding current)
   const prevSetsMap = useMemo(() => {
     const map: Record<string, Record<number, HistorySet>> = {};
     for (const { exId, entries } of allHistoryData ?? []) {
       map[exId] = {};
-      for (const s of entries[0]?.sets ?? []) map[exId][s.set_number] = s;
+      // Find the most recent session that is NOT the current one
+      const lastCompletedSession = entries.find(e => e.session_id !== session?.id);
+      for (const s of lastCompletedSession?.sets ?? []) {
+        map[exId][s.set_number] = s;
+      }
     }
     return map;
-  }, [allHistoryData]);
+  }, [allHistoryData, session?.id]);
 
   // Fetch weight suggestions for all exercises
   const { data: suggestionsData } = useQuery({
@@ -1301,35 +1320,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? 90 };
             const suggestion = suggestionsMap[se.exercise_id];
 
-            // Compute ghost text.
-            // Baseline = first pending set's template value (s.weight / s.reps).
-            // A user-typed value only replaces the baseline if it is strictly higher.
-            const ghostMap: Record<string, { weight?: string; reps?: string }> = {};
-            const firstPendingSet = se.sets.find(s => !s.is_completed);
-            let lastGhostWeight = firstPendingSet && firstPendingSet.weight > 0 ? String(firstPendingSet.weight) : '';
-            let lastGhostReps   = firstPendingSet && firstPendingSet.reps   > 0 ? String(firstPendingSet.reps)   : '';
-
-            for (const s of se.sets) {
-              if (s.is_completed) continue;
-              const edit = getEdit(s);
-              const ghost: { weight?: string; reps?: string } = {};
-
-              if (edit.weight) {
-                if (parseFloat(edit.weight) > parseFloat(lastGhostWeight || '0'))
-                  lastGhostWeight = edit.weight;
-              } else {
-                if (lastGhostWeight) ghost.weight = lastGhostWeight;
-              }
-
-              if (edit.reps) {
-                if (parseInt(edit.reps) > parseInt(lastGhostReps || '0'))
-                  lastGhostReps = edit.reps;
-              } else {
-                if (lastGhostReps) ghost.reps = lastGhostReps;
-              }
-
-              if (ghost.weight || ghost.reps) ghostMap[s.id] = ghost;
-            }
+            // Compute ghost placeholder text for pending sets.
+            const ghostMap = computeGhostMap(
+              se.sets,
+              (id) => getEdit(se.sets.find(s => s.id === id)!).weight ?? '',
+              (id) => getEdit(se.sets.find(s => s.id === id)!).reps ?? '',
+            );
 
             // Exercise card swipe values
             const swX = exSwipeX[se.id] ?? 0;
@@ -1497,23 +1493,22 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 {/* History panel */}
                 <ExerciseHistoryPanel exerciseId={se.exercise_id} open={historyOpen} isBodyweight={se.exercise.category === 'bodyweight'} />
 
-                {/* Column headers */}
+                {/* Column headers — aligned to SetRow layout */}
                 {se.sets.length > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-1 bg-muted/20 border-b border-border/10">
-                    <span className="w-6 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">#</span>
-                    <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Prev</span>
+                  <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/20 border-b border-border/10">
+                    <span className="w-12 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center"># / Prev</span>
                     {se.exercise.category !== 'bodyweight' && (
                       <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Lbs</span>
                     )}
                     <span className="flex-1 text-[10px] text-muted-foreground uppercase tracking-wide text-center">Reps</span>
-                    <span className="w-12 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">RPE</span>
-                    <span className="w-9 shrink-0" />
+                    <span className="w-11 shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide text-center">RPE</span>
+                    <span className="w-11 shrink-0" />
                   </div>
                 )}
 
                 {/* Set rows */}
                 <div>
-                  {se.sets.map(s => {
+                  {[...se.sets].sort((a, b) => a.set_number - b.set_number).map(s => {
                     const edit = getEdit(s);
                     const isBodyweight = se.exercise.category === 'bodyweight';
                     const prevSet = prevSetsMap[se.exercise_id]?.[s.set_number];

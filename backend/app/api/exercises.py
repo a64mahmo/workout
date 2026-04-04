@@ -115,6 +115,7 @@ async def get_exercise_history(
                         })
                 
                 history.append({
+                    "session_id": ts.id,
                     "session_date": ts.scheduled_date,
                     "session_name": ts.name,
                     "sets": sets_data,
