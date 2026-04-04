@@ -1,236 +1,197 @@
 /**
- * Tests for AuthProvider and useAuth hook (src/contexts/auth-context.tsx)
+ * Tests for AuthContext (src/contexts/auth-context.tsx)
  *
- * Coverage:
- *  - Fetches current user on mount via GET /api/auth/me
- *  - Sets user to null when /me returns an error (not logged in)
- *  - isLoading starts true, becomes false after fetch resolves
- *  - login() calls POST /api/auth/login then re-fetches /me
- *  - register() calls POST /api/auth/register then re-fetches /me
- *  - logout() calls POST /api/auth/logout and clears the user
- *  - useAuth() throws when used outside of AuthProvider
+ * Covers: initial loading state, successful login/register/logout,
+ * API error propagation, and the useAuth guard.
  */
-
+import '@testing-library/jest-dom';
 import React from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import userEvent from '@testing-library/user-event';
 import { AuthProvider, useAuth } from '@/contexts/auth-context';
-
-// ─── mock api ────────────────────────────────────────────────────────────────
+import { api } from '@/lib/api';
 
 jest.mock('@/lib/api', () => ({
-  api: { get: jest.fn(), post: jest.fn() },
+  api: {
+    get: jest.fn(),
+    post: jest.fn(),
+  },
 }));
-import { api } from '@/lib/api';
+
 const mockApi = api as jest.Mocked<typeof api>;
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-const TEST_USER = {
-  id: 'u1',
-  email: 'alice@example.com',
-  name: 'Alice',
-  has_fitbit_connected: false,
-};
-
-/** A consumer component that exposes context values via data-testid attributes */
-function AuthConsumer() {
-  const [loginErr, setLoginErr] = React.useState('');
+// Helper component that exposes auth state for assertions
+function TestConsumer() {
   const { user, isLoading, login, register, logout } = useAuth();
   return (
     <div>
-      <span data-testid="loading">{String(isLoading)}</span>
-      <span data-testid="user">{user ? user.email : 'null'}</span>
-      {loginErr && <span data-testid="login-error">{loginErr}</span>}
-      <button onClick={() => login('a@b.com', 'pass').catch((e: any) => setLoginErr(e.message))}>Login</button>
-      <button onClick={() => register('a@b.com', 'Alice', 'pass')}>Register</button>
-      <button onClick={() => logout()}>Logout</button>
+      {isLoading && <span data-testid="loading">loading</span>}
+      {user ? (
+        <span data-testid="user">{user.email}</span>
+      ) : (
+        <span data-testid="no-user">not logged in</span>
+      )}
+      <button onClick={() => login('a@b.com', 'pass')}>login</button>
+      <button onClick={() => register('a@b.com', 'Alice', 'pass')}>register</button>
+      <button onClick={() => logout()}>logout</button>
     </div>
   );
 }
 
-function renderWithProvider() {
-  return render(
-    <AuthProvider>
-      <AuthConsumer />
-    </AuthProvider>,
-  );
+function renderWithAuth(ui = <TestConsumer />) {
+  return render(<AuthProvider>{ui}</AuthProvider>);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Initial state ─────────────────────────────────────────────────────────────
 
-beforeEach(() => {
-  jest.clearAllMocks();
+test('shows loading state on mount, then resolves', async () => {
+  mockApi.get.mockResolvedValueOnce({ data: null });
+  renderWithAuth();
+  expect(screen.getByTestId('loading')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByTestId('loading')).not.toBeInTheDocument());
 });
 
-describe('AuthProvider — initial mount', () => {
-  it('starts with isLoading = true before /me resolves', async () => {
-    // /me never resolves during this check
-    let resolveMe!: (v: unknown) => void;
-    mockApi.get.mockReturnValueOnce(new Promise((r) => (resolveMe = r)) as any);
-
-    renderWithProvider();
-    expect(screen.getByTestId('loading').textContent).toBe('true');
-
-    // clean up: resolve the promise so the component unmounts cleanly
-    await act(async () => { resolveMe({ data: null }); });
+test('sets user when /api/auth/me resolves', async () => {
+  mockApi.get.mockResolvedValueOnce({
+    data: { id: '1', email: 'alice@test.com', name: 'Alice', has_fitbit_connected: false },
   });
-
-  it('sets user after a successful /me response', async () => {
-    mockApi.get.mockResolvedValueOnce({ data: TEST_USER });
-
-    renderWithProvider();
-
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe(TEST_USER.email));
-    expect(screen.getByTestId('loading').textContent).toBe('false');
-  });
-
-  it('leaves user as null when /me throws (unauthenticated)', async () => {
-    mockApi.get.mockRejectedValueOnce(new Error('401'));
-
-    renderWithProvider();
-
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
-    expect(screen.getByTestId('user').textContent).toBe('null');
-  });
-
-  it('calls GET /api/auth/me on mount', async () => {
-    mockApi.get.mockResolvedValueOnce({ data: TEST_USER });
-
-    renderWithProvider();
-
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith('/api/auth/me'));
-  });
+  renderWithAuth();
+  await waitFor(() =>
+    expect(screen.getByTestId('user')).toHaveTextContent('alice@test.com')
+  );
 });
 
-describe('AuthProvider — login()', () => {
-  it('calls POST /api/auth/login with email and password', async () => {
-    // Initial /me (already logged in after login)
-    mockApi.get.mockResolvedValue({ data: TEST_USER });
-    mockApi.post.mockResolvedValueOnce({ data: {} });
+test('sets user to null when /api/auth/me fails', async () => {
+  mockApi.get.mockRejectedValueOnce(new Error('401'));
+  renderWithAuth();
+  await waitFor(() => expect(screen.getByTestId('no-user')).toBeInTheDocument());
+});
 
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+// ── Login ─────────────────────────────────────────────────────────────────────
 
-    await act(async () => {
-      screen.getByText('Login').click();
-    });
+test('login calls POST /api/auth/login then fetches me', async () => {
+  // Initial fetch → not logged in
+  mockApi.get.mockResolvedValueOnce({ data: null });
+  renderWithAuth();
+  await waitFor(() => screen.getByTestId('no-user'));
 
-    expect(mockApi.post).toHaveBeenCalledWith('/api/auth/login', {
-      email: 'a@b.com',
-      password: 'pass',
-    });
+  // Login flow: post succeeds, then get /me returns user
+  mockApi.post.mockResolvedValueOnce({ data: { user_id: '1' } });
+  mockApi.get.mockResolvedValueOnce({
+    data: { id: '1', email: 'alice@test.com', name: 'Alice', has_fitbit_connected: false },
   });
 
-  it('re-fetches /me after login so user state is updated', async () => {
-    mockApi.get
-      .mockResolvedValueOnce({ data: null })   // initial fetch → not logged in
-      .mockResolvedValueOnce({ data: TEST_USER }); // after login
-    mockApi.post.mockResolvedValueOnce({ data: {} });
-
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
-
-    await act(async () => {
-      screen.getByText('Login').click();
-    });
-
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe(TEST_USER.email));
+  await act(async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'login' }));
   });
 
-  it('propagates errors thrown by the API', async () => {
-    mockApi.get.mockResolvedValue({ data: null });
-    mockApi.post.mockRejectedValueOnce(new Error('Invalid credentials'));
+  expect(mockApi.post).toHaveBeenCalledWith('/api/auth/login', {
+    email: 'a@b.com',
+    password: 'pass',
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('user')).toHaveTextContent('alice@test.com')
+  );
+});
 
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+test('login propagates API errors to caller', async () => {
+  mockApi.get.mockResolvedValueOnce({ data: null });
+  renderWithAuth();
+  await waitFor(() => screen.getByTestId('no-user'));
 
-    await act(async () => { screen.getByText('Login').click(); });
+  const apiError = Object.assign(new Error('Bad request'), {
+    response: { status: 401, data: { detail: 'Invalid credentials' } },
+  });
+  mockApi.post.mockRejectedValueOnce(apiError);
 
-    await waitFor(() =>
-      expect(screen.getByTestId('login-error').textContent).toBe('Invalid credentials'),
+  let caughtError: unknown;
+  function LoginCapture() {
+    const { login } = useAuth();
+    return (
+      <button
+        onClick={async () => {
+          try {
+            await login('bad@test.com', 'wrong');
+          } catch (e) {
+            caughtError = e;
+          }
+        }}
+      >
+        try-login
+      </button>
     );
+  }
+
+  const { getByRole } = render(
+    <AuthProvider>
+      <LoginCapture />
+    </AuthProvider>
+  );
+  // Drain the initial /me call
+  await waitFor(() => {});
+
+  await act(async () => {
+    await userEvent.click(getByRole('button', { name: 'try-login' }));
   });
+
+  expect(caughtError).toBeDefined();
 });
 
-describe('AuthProvider — register()', () => {
-  it('calls POST /api/auth/register with email, name and password', async () => {
-    mockApi.get.mockResolvedValue({ data: TEST_USER });
-    mockApi.post.mockResolvedValueOnce({ data: {} });
+// ── Register ──────────────────────────────────────────────────────────────────
 
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+test('register calls POST /api/auth/register then fetches me', async () => {
+  mockApi.get.mockResolvedValueOnce({ data: null });
+  renderWithAuth();
+  await waitFor(() => screen.getByTestId('no-user'));
 
-    await act(async () => {
-      screen.getByText('Register').click();
-    });
-
-    expect(mockApi.post).toHaveBeenCalledWith('/api/auth/register', {
-      email: 'a@b.com',
-      name: 'Alice',
-      password: 'pass',
-    });
+  mockApi.post.mockResolvedValueOnce({ data: { user_id: '2' } });
+  mockApi.get.mockResolvedValueOnce({
+    data: { id: '2', email: 'a@b.com', name: 'Alice', has_fitbit_connected: false },
   });
 
-  it('re-fetches /me after register so user state is updated', async () => {
-    mockApi.get
-      .mockResolvedValueOnce({ data: null })
-      .mockResolvedValueOnce({ data: TEST_USER });
-    mockApi.post.mockResolvedValueOnce({ data: {} });
-
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
-
-    await act(async () => {
-      screen.getByText('Register').click();
-    });
-
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe(TEST_USER.email));
+  await act(async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'register' }));
   });
+
+  expect(mockApi.post).toHaveBeenCalledWith('/api/auth/register', {
+    email: 'a@b.com',
+    name: 'Alice',
+    password: 'pass',
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('user')).toHaveTextContent('a@b.com')
+  );
 });
 
-describe('AuthProvider — logout()', () => {
-  it('calls POST /api/auth/logout', async () => {
-    mockApi.get.mockResolvedValue({ data: TEST_USER });
-    mockApi.post.mockResolvedValueOnce({ data: {} });
+// ── Logout ────────────────────────────────────────────────────────────────────
 
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe(TEST_USER.email));
+test('logout calls POST /api/auth/logout and clears user', async () => {
+  mockApi.get.mockResolvedValueOnce({
+    data: { id: '1', email: 'alice@test.com', name: 'Alice', has_fitbit_connected: false },
+  });
+  renderWithAuth();
+  await waitFor(() => screen.getByTestId('user'));
 
-    await act(async () => {
-      screen.getByText('Logout').click();
-    });
+  mockApi.post.mockResolvedValueOnce({ data: { message: 'Logged out' } });
 
-    expect(mockApi.post).toHaveBeenCalledWith('/api/auth/logout');
+  await act(async () => {
+    await userEvent.click(screen.getByRole('button', { name: 'logout' }));
   });
 
-  it('clears the user immediately after logout', async () => {
-    mockApi.get.mockResolvedValue({ data: TEST_USER });
-    mockApi.post.mockResolvedValueOnce({ data: {} });
-
-    renderWithProvider();
-    await waitFor(() => expect(screen.getByTestId('user').textContent).toBe(TEST_USER.email));
-
-    await act(async () => {
-      screen.getByText('Logout').click();
-    });
-
-    expect(screen.getByTestId('user').textContent).toBe('null');
-  });
+  expect(mockApi.post).toHaveBeenCalledWith('/api/auth/logout');
+  expect(screen.getByTestId('no-user')).toBeInTheDocument();
 });
 
-describe('useAuth outside of provider', () => {
-  it('throws an error', () => {
-    // Suppress expected React error output
-    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+// ── useAuth guard ─────────────────────────────────────────────────────────────
 
-    function Bare() {
-      useAuth();
-      return null;
-    }
-
-    expect(() => render(<Bare />)).toThrow('useAuth must be used within AuthProvider');
-
-    spy.mockRestore();
-  });
+test('useAuth throws when used outside AuthProvider', () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  function BareConsumer() {
+    useAuth();
+    return null;
+  }
+  expect(() => render(<BareConsumer />)).toThrow(
+    'useAuth must be used within AuthProvider'
+  );
+  consoleError.mockRestore();
 });

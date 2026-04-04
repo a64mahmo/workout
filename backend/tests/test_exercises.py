@@ -1,264 +1,281 @@
 """
-Tests for /api/exercises  (CRUD + history)
-
-Coverage:
-  - GET    /api/exercises              — list all, filter by muscle_group
-  - GET    /api/exercises/{id}         — found, not found
-  - POST   /api/exercises              — success, requires auth
-  - PUT    /api/exercises/{id}         — full update, partial update, not found
-  - DELETE /api/exercises/{id}         — success, not found
-  - GET    /api/exercises/{id}/history — empty, with sets
+Tests for /api/exercises — CRUD and per-user exercise history.
 """
-
-import uuid
 import pytest
-import pytest_asyncio
-
-from app.models.models import (
-    Exercise, TrainingSession, SessionExercise, ExerciseSet
-)
+from httpx import AsyncClient
 
 
-# ── list ──────────────────────────────────────────────────────────────────────
+# ── List / Get ────────────────────────────────────────────────────────────────
 
-@pytest.mark.asyncio
-async def test_list_exercises_empty(client):
-    resp = await client.get("/api/exercises")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-@pytest.mark.asyncio
-async def test_list_exercises_returns_all(client, test_exercise):
-    resp = await client.get("/api/exercises")
-    assert resp.status_code == 200
-    ids = [e["id"] for e in resp.json()]
-    assert test_exercise.id in ids
+async def test_list_exercises_empty(client: AsyncClient):
+    r = await client.get("/api/exercises")
+    assert r.status_code == 200
+    assert r.json() == []
 
 
-@pytest.mark.asyncio
-async def test_list_exercises_filter_by_muscle_group(client, db_session):
-    chest = Exercise(id=str(uuid.uuid4()), name="Bench", muscle_group="chest", category="weighted")
-    back = Exercise(id=str(uuid.uuid4()), name="Row", muscle_group="back", category="weighted")
-    db_session.add_all([chest, back])
-    await db_session.commit()
-
-    resp = await client.get("/api/exercises?muscle_group=chest")
-    assert resp.status_code == 200
-    names = [e["name"] for e in resp.json()]
-    assert "Bench" in names
-    assert "Row" not in names
+async def test_list_exercises_returns_all(auth_client: AsyncClient):
+    for mg in ["chest", "back", "legs"]:
+        await auth_client.post(
+            "/api/exercises",
+            json={"name": f"{mg} exercise", "muscle_group": mg, "category": "weighted"},
+        )
+    r = await auth_client.get("/api/exercises")
+    assert r.status_code == 200
+    assert len(r.json()) == 3
 
 
-# ── get one ───────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_get_exercise_found(client, test_exercise):
-    resp = await client.get(f"/api/exercises/{test_exercise.id}")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["id"] == test_exercise.id
-    assert data["name"] == test_exercise.name
-    assert data["muscle_group"] == test_exercise.muscle_group
-
-
-@pytest.mark.asyncio
-async def test_get_exercise_not_found(client):
-    resp = await client.get(f"/api/exercises/{uuid.uuid4()}")
-    assert resp.status_code == 404
-    assert "not found" in resp.json()["detail"].lower()
-
-
-# ── create ────────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_create_exercise_requires_auth(client):
-    resp = await client.post(
+async def test_list_exercises_filter_by_muscle_group(auth_client: AsyncClient):
+    await auth_client.post(
         "/api/exercises",
         json={"name": "Squat", "muscle_group": "legs", "category": "weighted"},
     )
-    assert resp.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_create_exercise_success(client, auth_headers):
-    payload = {"name": "Squat", "muscle_group": "legs", "category": "weighted"}
-    resp = await client.post("/api/exercises", json=payload, headers=auth_headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["name"] == "Squat"
-    assert data["muscle_group"] == "legs"
-    assert data["category"] == "weighted"
-    assert "id" in data
-
-
-@pytest.mark.asyncio
-async def test_create_bodyweight_exercise(client, auth_headers):
-    payload = {"name": "Pull-up", "muscle_group": "back", "category": "bodyweight"}
-    resp = await client.post("/api/exercises", json=payload, headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["category"] == "bodyweight"
-
-
-@pytest.mark.asyncio
-async def test_create_exercise_with_description(client, auth_headers):
-    payload = {
-        "name": "Deadlift",
-        "muscle_group": "back",
-        "category": "weighted",
-        "description": "Hip-hinge compound movement",
-    }
-    resp = await client.post("/api/exercises", json=payload, headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["description"] == "Hip-hinge compound movement"
-
-
-# ── update ────────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_update_exercise_name(client, test_exercise):
-    resp = await client.put(
-        f"/api/exercises/{test_exercise.id}",
-        json={"name": "Incline Bench Press"},
+    await auth_client.post(
+        "/api/exercises",
+        json={"name": "Bench", "muscle_group": "chest", "category": "weighted"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["name"] == "Incline Bench Press"
+    r = await auth_client.get("/api/exercises?muscle_group=legs")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["muscle_group"] == "legs"
 
 
-@pytest.mark.asyncio
-async def test_update_exercise_partial(client, test_exercise):
-    """PUT with only some fields should update only those fields."""
-    resp = await client.put(
-        f"/api/exercises/{test_exercise.id}",
-        json={"muscle_group": "shoulders"},
+async def test_get_exercise_by_id(auth_client: AsyncClient, exercise: dict):
+    r = await auth_client.get(f"/api/exercises/{exercise['id']}")
+    assert r.status_code == 200
+    assert r.json()["name"] == "Bench Press"
+
+
+async def test_get_exercise_not_found(client: AsyncClient):
+    r = await client.get("/api/exercises/nonexistent-id-123")
+    assert r.status_code == 404
+
+
+# ── Create ────────────────────────────────────────────────────────────────────
+
+async def test_create_exercise_requires_auth(client: AsyncClient):
+    r = await client.post(
+        "/api/exercises",
+        json={"name": "Squat", "muscle_group": "legs", "category": "weighted"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["muscle_group"] == "shoulders"
-    # name should be unchanged
-    assert data["name"] == test_exercise.name
+    assert r.status_code == 401
 
 
-@pytest.mark.asyncio
-async def test_update_exercise_not_found(client):
-    resp = await client.put(
-        f"/api/exercises/{uuid.uuid4()}",
-        json={"name": "Ghost Exercise"},
+async def test_create_exercise_success(auth_client: AsyncClient):
+    r = await auth_client.post(
+        "/api/exercises",
+        json={
+            "name": "Overhead Press",
+            "muscle_group": "shoulders",
+            "category": "weighted",
+            "description": "Standing barbell press",
+        },
     )
-    assert resp.status_code == 404
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "Overhead Press"
+    assert body["muscle_group"] == "shoulders"
+    assert body["category"] == "weighted"
+    assert body["description"] == "Standing barbell press"
+    assert "id" in body
 
 
-# ── delete ────────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_delete_exercise_success(client, test_exercise):
-    resp = await client.delete(f"/api/exercises/{test_exercise.id}")
-    assert resp.status_code == 200
-    assert "deleted" in resp.json()["message"].lower()
-
-    # Confirm it's gone
-    resp2 = await client.get(f"/api/exercises/{test_exercise.id}")
-    assert resp2.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_delete_exercise_not_found(client):
-    resp = await client.delete(f"/api/exercises/{uuid.uuid4()}")
-    assert resp.status_code == 404
-
-
-# ── history ───────────────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_exercise_history_empty(client, test_exercise, auth_headers):
-    resp = await client.get(
-        f"/api/exercises/{test_exercise.id}/history",
-        headers=auth_headers,
+async def test_create_bodyweight_exercise(auth_client: AsyncClient):
+    r = await auth_client.post(
+        "/api/exercises",
+        json={"name": "Dip", "muscle_group": "chest", "category": "bodyweight"},
     )
-    assert resp.status_code == 200
-    assert resp.json() == []
+    assert r.status_code == 200
+    assert r.json()["category"] == "bodyweight"
 
 
-@pytest.mark.asyncio
-async def test_exercise_history_with_sets(client, db_session, test_user, test_exercise, auth_headers):
-    ts = TrainingSession(
-        id=str(uuid.uuid4()),
-        user_id=test_user.id,
-        name="Chest Day",
-        scheduled_date="2026-03-01",
-        status="completed",
+async def test_create_exercise_defaults_to_weighted(auth_client: AsyncClient):
+    r = await auth_client.post(
+        "/api/exercises",
+        json={"name": "Cable Fly", "muscle_group": "chest"},
     )
-    db_session.add(ts)
+    assert r.status_code == 200
+    assert r.json()["category"] == "weighted"
 
-    se = SessionExercise(
-        id=str(uuid.uuid4()),
-        session_id=ts.id,
-        exercise_id=test_exercise.id,
+
+async def test_create_exercise_missing_name(auth_client: AsyncClient):
+    r = await auth_client.post(
+        "/api/exercises",
+        json={"muscle_group": "chest", "category": "weighted"},
     )
-    db_session.add(se)
+    assert r.status_code == 422
 
-    db_session.add(ExerciseSet(
-        id=str(uuid.uuid4()),
-        session_exercise_id=se.id,
-        set_number=1,
-        reps=10,
-        weight=100.0,
-        is_completed=True,
-        is_warmup=False,
-    ))
-    await db_session.commit()
 
-    resp = await client.get(
-        f"/api/exercises/{test_exercise.id}/history",
-        headers=auth_headers,
+# ── Update ────────────────────────────────────────────────────────────────────
+
+async def test_update_exercise_name(auth_client: AsyncClient, exercise: dict):
+    r = await auth_client.put(
+        f"/api/exercises/{exercise['id']}",
+        json={"name": "Barbell Bench Press"},
     )
-    assert resp.status_code == 200
-    history = resp.json()
+    assert r.status_code == 200
+    assert r.json()["name"] == "Barbell Bench Press"
+    assert r.json()["muscle_group"] == "chest"  # unchanged
+
+
+async def test_update_exercise_not_found(auth_client: AsyncClient):
+    r = await auth_client.put(
+        "/api/exercises/doesnotexist",
+        json={"name": "Updated Name"},
+    )
+    assert r.status_code == 404
+
+
+async def test_update_exercise_partial(auth_client: AsyncClient, exercise: dict):
+    r = await auth_client.put(
+        f"/api/exercises/{exercise['id']}",
+        json={"description": "Updated description"},
+    )
+    assert r.status_code == 200
+    assert r.json()["description"] == "Updated description"
+    assert r.json()["name"] == "Bench Press"  # untouched
+
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+
+async def test_delete_exercise(auth_client: AsyncClient, exercise: dict):
+    r = await auth_client.delete(f"/api/exercises/{exercise['id']}")
+    assert r.status_code == 200
+    assert r.json()["message"] == "Exercise deleted"
+    # Confirm gone
+    r2 = await auth_client.get(f"/api/exercises/{exercise['id']}")
+    assert r2.status_code == 404
+
+
+async def test_delete_exercise_not_found(auth_client: AsyncClient):
+    r = await auth_client.delete("/api/exercises/ghost-id")
+    assert r.status_code == 404
+
+
+# ── History ───────────────────────────────────────────────────────────────────
+
+async def test_exercise_history_requires_auth(client: AsyncClient, exercise: dict):
+    r = await client.get(f"/api/exercises/{exercise['id']}/history")
+    assert r.status_code == 401
+
+
+async def test_exercise_history_empty(auth_client: AsyncClient, exercise: dict):
+    """No completed sessions → empty history."""
+    r = await auth_client.get(f"/api/exercises/{exercise['id']}/history")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+async def test_exercise_history_returns_completed_sessions(
+    auth_client: AsyncClient, session_with_sets: dict
+):
+    """After completing a session, history should reflect that session."""
+    session = session_with_sets["session"]
+    exercise = session_with_sets["exercise"]
+    sid = session["id"]
+
+    # Complete the session
+    r = await auth_client.post(f"/api/sessions/{sid}/complete")
+    assert r.status_code == 200
+
+    r = await auth_client.get(f"/api/exercises/{exercise['id']}/history")
+    assert r.status_code == 200
+    history = r.json()
     assert len(history) == 1
-    assert history[0]["total_volume"] == 1000.0
-    assert history[0]["sets"][0]["weight"] == 100.0
+    entry = history[0]
+    assert entry["session_name"] == "Push Day"
+    assert len(entry["sets"]) == 3
+    # Warmup sets should not be included (none were warmup here)
+    # Total volume = 10*100 + 10*105 + 8*110 = 1000 + 1050 + 880 = 2930
+    assert entry["total_volume"] == pytest.approx(2930.0)
 
 
-@pytest.mark.asyncio
-async def test_exercise_history_excludes_other_users(client, db_session, test_user, test_exercise, auth_headers):
-    """History must only return sessions belonging to the authenticated user."""
-    from app.models.models import User
-    other_user = User(
-        id=str(uuid.uuid4()),
-        email="other@example.com",
-        name="Other",
-        hashed_password="x",
+async def test_exercise_history_excludes_warmup_sets(
+    auth_client: AsyncClient, started_session: dict, exercise: dict
+):
+    """Warmup sets must be excluded from history volume."""
+    sid = started_session["id"]
+    r = await auth_client.post(
+        f"/api/sessions/{sid}/exercises",
+        json={"exercise_id": exercise["id"], "order_index": 0},
     )
-    db_session.add(other_user)
+    se_id = r.json()["id"]
 
-    ts = TrainingSession(
-        id=str(uuid.uuid4()),
-        user_id=other_user.id,
-        name="Other Chest Day",
-        scheduled_date="2026-03-05",
-        status="completed",
+    # Warmup set
+    r = await auth_client.post(
+        f"/api/sessions/session-exercises/{se_id}/sets",
+        json={"set_number": 1, "reps": 10, "weight": 60.0, "is_warmup": True},
     )
-    db_session.add(ts)
-    se = SessionExercise(
-        id=str(uuid.uuid4()),
-        session_id=ts.id,
-        exercise_id=test_exercise.id,
+    warmup_id = r.json()["id"]
+    await auth_client.put(
+        f"/api/sessions/exercise-sets/{warmup_id}", json={"is_completed": True}
     )
-    db_session.add(se)
-    db_session.add(ExerciseSet(
-        id=str(uuid.uuid4()),
-        session_exercise_id=se.id,
-        set_number=1,
-        reps=5,
-        weight=200.0,
-        is_completed=True,
-        is_warmup=False,
-    ))
-    await db_session.commit()
 
-    resp = await client.get(
-        f"/api/exercises/{test_exercise.id}/history",
-        headers=auth_headers,
+    # Working set
+    r = await auth_client.post(
+        f"/api/sessions/session-exercises/{se_id}/sets",
+        json={"set_number": 2, "reps": 8, "weight": 100.0, "is_warmup": False},
     )
-    assert resp.status_code == 200
-    assert resp.json() == []
+    work_id = r.json()["id"]
+    await auth_client.put(
+        f"/api/sessions/exercise-sets/{work_id}", json={"is_completed": True}
+    )
+
+    await auth_client.post(f"/api/sessions/{sid}/complete")
+
+    r = await auth_client.get(f"/api/exercises/{exercise['id']}/history")
+    history = r.json()
+    assert len(history) == 1
+    # Only the working set (8 * 100 = 800) should be in volume
+    assert history[0]["total_volume"] == pytest.approx(800.0)
+    assert len(history[0]["sets"]) == 1  # Only non-warmup sets
+
+
+async def test_exercise_history_user_isolation(
+    auth_client: AsyncClient,
+    second_auth_client: AsyncClient,
+    session_with_sets: dict,
+):
+    """Another user cannot see user1's exercise history."""
+    session = session_with_sets["session"]
+    exercise = session_with_sets["exercise"]
+    sid = session["id"]
+    await auth_client.post(f"/api/sessions/{sid}/complete")
+
+    # Second user has no sessions for this exercise
+    r = await second_auth_client.get(f"/api/exercises/{exercise['id']}/history")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+async def test_exercise_history_limit(auth_client: AsyncClient, exercise: dict, cycle: dict):
+    """limit query param should cap the number of sessions returned."""
+    # Create and complete 3 sessions with this exercise
+    for i in range(3):
+        sr = await auth_client.post(
+            "/api/sessions",
+            json={
+                "name": f"Session {i}",
+                "meso_cycle_id": cycle["id"],
+                "scheduled_date": f"2026-04-0{i+1}",
+            },
+        )
+        sid = sr.json()["id"]
+        await auth_client.post(f"/api/sessions/{sid}/start")
+        r = await auth_client.post(
+            f"/api/sessions/{sid}/exercises",
+            json={"exercise_id": exercise["id"], "order_index": 0},
+        )
+        se_id = r.json()["id"]
+        r = await auth_client.post(
+            f"/api/sessions/session-exercises/{se_id}/sets",
+            json={"set_number": 1, "reps": 5, "weight": 50.0},
+        )
+        await auth_client.put(
+            f"/api/sessions/exercise-sets/{r.json()['id']}", json={"is_completed": True}
+        )
+        await auth_client.post(f"/api/sessions/{sid}/complete")
+
+    r = await auth_client.get(f"/api/exercises/{exercise['id']}/history?limit=2")
+    assert r.status_code == 200
+    assert len(r.json()) == 2
