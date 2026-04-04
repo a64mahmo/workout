@@ -105,7 +105,7 @@ class SessionExercise(Base):
 
     session = relationship("TrainingSession", back_populates="session_exercises")
     exercise = relationship("Exercise", back_populates="session_exercises")
-    sets = relationship("ExerciseSet", back_populates="session_exercise", cascade="all, delete-orphan")
+    sets = relationship("ExerciseSet", back_populates="session_exercise", cascade="all, delete-orphan", order_by="ExerciseSet.set_number")
 
 class ExerciseSet(Base):
     __tablename__ = "exercise_sets"

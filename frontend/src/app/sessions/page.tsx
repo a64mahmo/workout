@@ -758,12 +758,39 @@ export default function SessionsPage() {
           {/* ── History ── */}
           {hasHistory && (
             <section className="space-y-3">
-              {/* Month nav + filters */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                  History
-                </h2>
-                <div className="flex items-center gap-2 flex-wrap">
+              {/* History controls — two rows on mobile, single row on desktop */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {/* Row 1: heading + month navigator */}
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                    History
+                  </h2>
+                  {/* Month navigator */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setViewMonth((m) => subMonths(m, 1))}
+                      className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronLeft className="size-4" />
+                    </button>
+                    <span className="text-xs font-medium min-w-[76px] text-center">
+                      {format(viewMonth, 'MMM yyyy')}
+                    </span>
+                    <button
+                      onClick={() => setViewMonth((m) => addMonths(m, 1))}
+                      disabled={
+                        isSameMonth(viewMonth, new Date()) &&
+                        isSameYear(viewMonth, new Date())
+                      }
+                      className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      <ChevronRight className="size-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Row 2: status filter + sort button */}
+                <div className="flex items-center gap-2">
                   {/* Status filter */}
                   <Select
                     value={statusFilter}
@@ -774,7 +801,7 @@ export default function SessionsPage() {
                       { value: 'cancelled', label: 'Cancelled' },
                     ]}
                   >
-                    <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectTrigger className="h-8 flex-1 sm:w-28 sm:flex-none text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -787,35 +814,12 @@ export default function SessionsPage() {
                   {/* Sort order */}
                   <button
                     onClick={() => setSortOrder((o) => o === 'desc' ? 'asc' : 'desc')}
-                    className="flex items-center gap-1 h-7 px-2 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    className="flex items-center gap-1 h-8 px-2.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
                     title={sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
                   >
                     <ArrowDownUp className="size-3" />
                     {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
                   </button>
-
-                  {/* Month navigator */}
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setViewMonth((m) => subMonths(m, 1))}
-                      className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                    >
-                      <ChevronLeft className="size-4" />
-                    </button>
-                    <span className="text-xs font-medium min-w-[72px] text-center">
-                      {format(viewMonth, 'MMM yyyy')}
-                    </span>
-                    <button
-                      onClick={() => setViewMonth((m) => addMonths(m, 1))}
-                      disabled={
-                        isSameMonth(viewMonth, new Date()) &&
-                        isSameYear(viewMonth, new Date())
-                      }
-                      className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
-                    >
-                      <ChevronRight className="size-4" />
-                    </button>
-                  </div>
                 </div>
               </div>
 
