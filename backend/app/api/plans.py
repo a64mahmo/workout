@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_serializer, Field
 from datetime import datetime
 
 from app.database import get_db
-from app.models.models import Plan, PlanSession, PlanExercise, Exercise
+from app.models.models import Plan, PlanSession, PlanExercise, Exercise, TrainingSession
 
 router = APIRouter(prefix="/api/plans", tags=["plans"])
 
@@ -161,6 +161,41 @@ async def get_template(template_id: str):
         }
     }
     return templates.get(template_id, {"error": "Template not found"})
+
+
+@router.get("/progress")
+async def get_plans_progress(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return progress for all of the user's plans.
+    Maps plan_id → { current_week, last_completed_at, last_session_name, completed_session_ids }
+    """
+    result = await db.execute(
+        select(TrainingSession, PlanSession)
+        .join(PlanSession, TrainingSession.plan_session_id == PlanSession.id)
+        .where(
+            TrainingSession.user_id == user_id,
+            TrainingSession.plan_session_id.isnot(None),
+        )
+        .order_by(TrainingSession.actual_date.desc().nullslast(), TrainingSession.scheduled_date.desc())
+    )
+    rows = result.all()
+
+    progress: dict = {}
+    for ts, ps in rows:
+        plan_id = ps.plan_id
+        if plan_id not in progress:
+            progress[plan_id] = {
+                "current_week": ps.week_number,
+                "last_completed_at": ts.actual_date or ts.scheduled_date,
+                "last_session_name": ps.name,
+                "completed_session_ids": [],
+            }
+        progress[plan_id]["completed_session_ids"].append(ps.id)
+
+    return progress
 
 
 @router.get("/{plan_id}", response_model=PlanResponse)
@@ -447,8 +482,8 @@ async def apply_plan_session(
     body: dict,
     db: AsyncSession = Depends(get_db)
 ):
-    from app.models.models import TrainingSession, SessionExercise, ExerciseSet
-    
+    from app.models.models import SessionExercise, ExerciseSet
+
     training_session_id = body.get("training_session_id")
     overrides = body.get("overrides", [])
     
@@ -467,12 +502,18 @@ async def apply_plan_session(
         raise HTTPException(status_code=404, detail="Plan not found")
     
     override_map = {o.get("plan_exercise_id"): o for o in overrides}
-    
+
+    # Record which plan session was applied on the training session
+    ts_result = await db.execute(select(TrainingSession).where(TrainingSession.id == training_session_id))
+    training_session = ts_result.scalar_one_or_none()
+    if training_session:
+        training_session.plan_session_id = plan_session.id
+
     for pe in sorted(plan_session.exercises, key=lambda x: x.order_index):
         override = override_map.get(pe.id, {})
         if not override.get("include", True):
             continue
-        
+
         session_exercise = SessionExercise(
             session_id=training_session_id,
             exercise_id=pe.exercise_id,
@@ -481,9 +522,9 @@ async def apply_plan_session(
         )
         db.add(session_exercise)
         await db.flush()
-        
+
         target_weight = override.get("weight") or pe.target_weight or 0
-        
+
         for set_num in range(1, (pe.target_sets or 3) + 1):
             exercise_set = ExerciseSet(
                 session_exercise_id=session_exercise.id,
@@ -493,7 +534,7 @@ async def apply_plan_session(
                 is_completed=False
             )
             db.add(exercise_set)
-    
+
     await db.commit()
-    
+
     return {"message": "Plan session applied"}

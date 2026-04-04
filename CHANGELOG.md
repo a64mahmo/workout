@@ -8,21 +8,169 @@ All notable changes to this project are documented here.
 
 ### Added
 
-#### Test suite
-- **Backend** — 105 integration tests across 5 files using pytest + pytest-asyncio. Each test gets a fresh SQLite schema so there is no shared state between runs.
-  - `test_auth.py` — register, login, logout, `/me`, duplicate email, invalid email, rate-limiting (429 after 5 failed attempts)
-  - `test_sessions.py` — full session lifecycle (create → start → add exercise → log sets → complete/cancel), volume calculation, warmup exclusion, PR detection, pre-summary workout number
-  - `test_exercises.py` — CRUD, muscle group filter, exercise history (warmup exclusion, user isolation, `limit` cap)
-  - `test_suggestions.py` — all RPE thresholds (`< 7` / `7–8` / `8–9` / `9–9.5` / `≥ 9.5`), top-set reference logic, 2.5 lb rounding, no-RPE fallback, meso cycle filter, suggestion log creation, outcome recording, cross-user 404
-  - `test_meso_cycles.py` — CRUD, micro cycle management, cascade delete, all focus types
-- **Frontend** — 42 tests across 3 files using Jest + React Testing Library + `@testing-library/user-event`.
-  - `auth-context.test.tsx` — loading state, user resolution, login/register/logout flows, API error propagation, `useAuth` outside-provider guard
-  - `login-page.test.tsx` — form rendering, password show/hide toggle, loading state (spinner + disabled inputs), error messages (401, 429, generic network), error clear on resubmit, input re-enable after failure
-  - `suggestion-algorithm.test.ts` — pure TypeScript mirror of the RP weight algorithm; all threshold branches, rounding edge cases, top-set logic, no-RPE single/two-session paths, RPE averaging across sets
-- **GitHub Actions CI** (`.github/workflows/ci.yml`) — `backend` and `frontend` jobs run in parallel on every push and PR; a `build` job runs `docker build` on `master`/`prod`, gated behind both test jobs.
-- `pytest.ini` added to `backend/` with `asyncio_mode = auto`.
-- `npm test`, `npm run test:watch`, `npm run test:ci` scripts added to `frontend/package.json`.
-- `@testing-library/user-event` added to frontend dev dependencies.
+#### Frontend test suite — new coverage (`frontend/src/__tests__/`)
+
+Built a comprehensive frontend test suite from scratch covering all previously untested layers. All 160 tests pass.
+
+**`utils.test.ts`** (10 tests)
+- `cn()`: class merging, falsy filtering, Tailwind deduplication
+- `formatStatus()`: underscore-to-space conversion, capitalisation
+
+**`api.test.ts`** (18 tests)
+- `paramsSerializer`: arrays repeat the key, null/undefined values are omitted, scalars serialised correctly, empty params returns `""`
+- Axios defaults: `withCredentials`, `Content-Type`, interceptor registration
+- 401 response interceptor: always rejects the promise; redirects to `/login` on 401 outside of `/login`
+
+**`auth-context.test.tsx`** (13 tests)
+- `AuthProvider` mount: `isLoading` starts true, resolves after `/api/auth/me`; user set on success, stays null on error
+- `login()`: calls `POST /api/auth/login`, re-fetches `/me`, propagates API errors
+- `register()`: calls `POST /api/auth/register` with correct payload, re-fetches `/me`
+- `logout()`: calls `POST /api/auth/logout`, clears user immediately
+- `useAuth()` outside provider: throws with clear error message
+
+**`auth-guard.test.tsx`** (7 tests)
+- Loading: spinner shown while `isLoading` is true
+- Unauthenticated on protected path: `router.replace('/login')` called, renders null
+- Authenticated: children rendered on any path, no redirect
+- Public paths (`/login`, `/register`, sub-paths): children rendered without redirect when unauthenticated
+
+**`login-page.test.tsx`** (13 tests)
+- Renders all fields and submit button; register link present
+- Password visibility toggle (show / hide)
+- Successful login: calls `auth.login()`, navigates to `/`
+- Error handling: API detail message, HTTP 429 rate-limit message, generic fallback
+- Error clears before next submission
+- Loading state: button disabled with "Signing in…" text, inputs disabled
+
+**`register-page.test.tsx`** (17 tests)
+- Renders name, email, password fields
+- Password rules list hidden until typing begins
+- Each rule lights up green / red as conditions are met/unmet
+- Submit button disabled when password invalid
+- Successful registration: calls `auth.register()`, navigates to `/`
+- Error handling: "Email already registered" → "email already in use", API detail, generic fallback
+- Password visibility toggle
+- Loading state: inputs disabled, "Creating account…" text shown
+
+**`sessions-page.test.tsx`** (13 tests)
+- Loading: skeleton placeholders visible while data fetches
+- Empty state: "No sessions yet" + create button
+- Stats strip: total count and volume values rendered correctly
+- Upcoming section: scheduled and in_progress sessions appear
+- History section: completed sessions rendered; empty-month placeholder shown
+- Delete: `DELETE /api/sessions/:id` called on swipe/button
+- Session card navigation: click navigates to `/sessions/:id`
+
+#### Frontend test suite — pre-existing test fixes (`session-detail-page.test.tsx`)
+
+Fixed 6 tests that were broken due to page UI changes after the tests were originally written:
+
+| Test | Root cause | Fix |
+|---|---|---|
+| Volume shows `1,000` | Page now formats ≥1000 as `1.0k` | Regex updated to `/1\.0k\|1,000\|1000/`; use `getAllByText` (volume appears in both header and exercise row) |
+| Cancelled: no Edit button | `isCompleted` now includes `cancelled` — Edit button IS shown | Assertion flipped: expect Edit/Lock present, assert Start/Finish/Cancel absent |
+| Set badge `0 / 2` | Page renders `0/2` (no spaces) | Changed to `'0/2'` |
+| `+ Add Set` | `+` is an SVG icon, not text | Changed to `'Add Set'` |
+| Back button selector | Selector `button[class*="lucide-chevron-left"]` targets the button but class is on the child SVG | Changed to `querySelector('.lucide-chevron-left')?.closest('button')` |
+| Volume calculation `/1,000\|1000/` | Same format change as above | Same fix as volume test |
+
+#### Backend test suite — new coverage (`backend/tests/`)
+
+Built a backend test suite covering the previously untested API surface. All 91 tests pass (83 new + 8 pre-existing).
+
+**`tests/conftest.py`** — shared fixtures
+- In-memory SQLite database (created and dropped per test function for full isolation)
+- `db_session`: fresh `AsyncSession` per test
+- `client`: `AsyncClient` wired to the FastAPI app; overrides `get_db` dependency and patches `async_session` module-level references in auth / exercises / meso_cycles / suggestions routers
+- `test_user`, `auth_headers` (JWT cookie), `test_exercise`, `test_cycle`, `test_session` factory fixtures
+
+**`tests/test_auth.py`** (14 tests)
+- `POST /api/auth/register`: success (cookie set, user_id returned), duplicate email → 400, invalid email → 422
+- `POST /api/auth/login`: success (cookie set), wrong password → 401, unknown email → 401, rate limit (6th attempt) → 429
+- `POST /api/auth/logout`: 200, `access_token` cookie cleared
+- `GET /api/auth/me`: returns user fields for authenticated request; 401 when unauthenticated
+
+**`tests/test_exercises.py`** (18 tests)
+- `GET /api/exercises`: empty list, all exercises, filtered by `muscle_group`
+- `GET /api/exercises/{id}`: found (fields correct), 404
+- `POST /api/exercises`: requires auth (401 without cookie), weighted, bodyweight, with description
+- `PUT /api/exercises/{id}`: rename, partial update (other fields unchanged), 404
+- `DELETE /api/exercises/{id}`: removed + confirmed via GET, 404
+- `GET /api/exercises/{id}/history`: empty, with sets (volume calculated), user isolation (other users' sessions excluded)
+
+**`tests/test_meso_cycles.py`** (16 tests)
+- `GET /api/meso-cycles`: empty, own cycles returned, other users' cycles excluded, requires auth
+- `GET /api/meso-cycles/{id}`: found, 404
+- `POST /api/meso-cycles`: requires auth, full payload, minimal payload
+- `PUT /api/meso-cycles/{id}`: name change, deactivate, 404
+- `DELETE /api/meso-cycles/{id}`: deleted + confirmed, 404
+- `GET /api/meso-cycles/{id}/micro-cycles`: empty list
+- `POST /api/meso-cycles/{id}/micro-cycles`: created with correct week_number, focus, parent ID; list shows both after two creates
+
+**`tests/test_sessions.py`** (35 tests)
+- `GET /api/sessions`: empty, own sessions, excludes other users, requires auth
+- `GET /api/sessions/{id}`: found (includes `exercises` array), 404
+- `POST /api/sessions`: requires auth, success (user_id, status), with notes
+- `PUT /api/sessions/{id}`: name, notes, 404
+- `DELETE /api/sessions/{id}`: success, 404, cascades to child sets
+- `POST /{id}/start`: transitions to `in_progress`, sets `start_time`, 404
+- `POST /{id}/complete`: transitions to `completed`, volume = `reps × weight` for non-warmup sets only, warmup sets excluded, 404
+- `POST /{id}/cancel`: transitions to `cancelled`, 404
+- `POST /{id}/exercises`: exercise added with correct `exercise_id`
+- `DELETE /session-exercises/{se_id}`: removed, 404
+- `POST /session-exercises/{se_id}/sets`: set created with correct fields, `is_completed=False` by default
+- `PUT /exercise-sets/{set_id}`: mark completed, update weight/reps/RPE, 404
+- `DELETE /exercise-sets/{set_id}`: deleted, 404
+- `GET /{id}/pre-summary`: fields present, volume calculation, 404
+
+---
+
+## [Unreleased] — 2026-04-04 (continued)
+
+### Fixed
+
+#### Session page — "Prev" rendering bug
+- **Bug**: the "Prev" column (showing previous session performance) often rendered as `—` even when history existed
+- **Root cause**: history API returned the current (incomplete) session as the first entry; frontend took `entries[0]` which had no sets yet
+- **Fix**: frontend now filters out the current session ID when computing `prevSetsMap`, correctly identifying the most recent *past* performance
+- **Backend update**: added `session_id` to the `GET /api/exercises/{id}/history` response to enable this filtering
+
+#### Session page — ghost placeholder regression
+- **Bug**: completing a set caused ghost placeholder values to disappear from all remaining pending sets
+- **Root cause**: ghost seed was derived from the first pending set's template value; after a set was completed its edit entry was deleted, making the next pending set appear to have no template, so `lastGhostWeight / lastGhostReps` became empty
+- **Fix**: ghost seed now walks completed non-warmup sets first; only falls back to the first pending set's template when no completed sets exist yet
+- Extracted `computeGhostMap` into `frontend/src/lib/ghost-map.ts` as a pure utility function so the logic is unit-testable independent of React
+
+### Added
+
+#### Tests — ghost map unit tests (`frontend/src/__tests__/ghost-map.test.ts`)
+- 10 unit tests for `computeGhostMap` covering:
+  - No history: empty map when all template values are zero
+  - Template propagation: first pending set's template seeds ghost for all pending sets
+  - **Regression case**: completing set 1 → ghost propagates from completed weight/reps to sets 2, 3, etc.
+  - Multiple completed sets: uses the last completed set, not the first
+  - Warmup sets excluded as ghost seed source
+  - User-typed values update the running ghost for downstream sets
+  - Zero-weight (bodyweight) completed sets do not contribute to weight ghost
+
+### Changed
+
+#### Session page — "Prev" column visibility & layout
+- Increased "Prev" column width from `w-10` to `w-12` (48px) to prevent truncation of values like `225×10`
+- Darkened "Prev" text color (from 40/50% opacity to 60%) for better readability
+- Removed `truncate` class from "Prev" label to ensure values are never hidden
+- Updated RPE column in completed rows to `w-11` to match the header and editable rows
+
+#### Session page — SetRow mobile tap targets
+- Input height increased from `h-9` (36 px) to `h-11` (44 px) — meets Apple's minimum recommended touch target
+- Input font size increased from `text-sm` to `text-base` for easier reading on mobile
+- Set number and previous-set reference merged into a single stacked `w-12` column, freeing a full flex column for weight and reps inputs
+- Complete button increased from `size-9` to `size-11` with `rounded-xl`
+- Column headers aligned to the new layout widths
+
+#### Sessions list — history filter row mobile layout
+- Replaced single `flex-wrap` row (wraps unpredictably on small screens) with an explicit two-row layout on mobile: heading + month navigator on row 1, status filter + sort button on row 2
+- Collapses back to a single row at the `sm:` breakpoint
 
 ---
 
