@@ -1397,6 +1397,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       {isEditing && (
                         <button
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
+                          title="Remove exercise"
                           className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                         >
                           <X className="size-3.5" />
