@@ -347,11 +347,45 @@ Export from the Strong app (Settings → Export Data) and place the file at `bac
 
 ## Testing
 
+The project has a full test suite for both the backend API and frontend UI. All tests run automatically on every push and pull request via GitHub Actions.
+
+### Backend
+
+105 integration tests using **pytest + pytest-asyncio** against an in-memory SQLite database. Each test gets a fresh schema — no shared state between tests.
+
 ```bash
 cd backend
-source venv/bin/activate
+pip install -r requirements.txt
 pytest tests/ -v
 ```
+
+| File | Coverage |
+|---|---|
+| `tests/test_auth.py` | Register, login, logout, `/me`, rate limiting (429) |
+| `tests/test_sessions.py` | Full lifecycle: create → start → log sets → complete/cancel, volume calculation, PR detection, pre-summary |
+| `tests/test_exercises.py` | CRUD, muscle group filter, history (warmup exclusion, user isolation, limit) |
+| `tests/test_suggestions.py` | All RPE thresholds, top-set logic, rounding, meso filter, suggestion logs, outcome recording |
+| `tests/test_meso_cycles.py` | CRUD, micro cycles, cascade delete |
+
+### Frontend
+
+42 tests using **Jest + React Testing Library**.
+
+```bash
+cd frontend
+npm test          # run once
+npm run test:watch   # interactive / TDD mode
+```
+
+| File | Coverage |
+|---|---|
+| `src/__tests__/auth-context.test.tsx` | Loading state, login/register/logout flows, error propagation, `useAuth` guard |
+| `src/__tests__/login-page.test.tsx` | Form rendering, password toggle, loading state, error messages (401, 429, generic), re-enable after failure |
+| `src/__tests__/suggestion-algorithm.test.ts` | Pure TypeScript mirror of the RP weight algorithm — all RPE thresholds, rounding edge cases, no-RPE fallback, multi-session progression |
+
+### CI
+
+GitHub Actions runs both suites on every push and PR (`.github/workflows/ci.yml`). A Docker build check runs additionally on `master` and `prod` branches, gated on both test jobs passing.
 
 ---
 
