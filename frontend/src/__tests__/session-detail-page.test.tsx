@@ -224,7 +224,8 @@ describe('SessionDetailPage', () => {
         })],
       });
       await renderPage(session);
-      await waitFor(() => expect(screen.getByText(/1,000|1000/)).toBeInTheDocument());
+      // Page formats volumes ≥1000 as "1.0k lbs" (shown in header and exercise row)
+      await waitFor(() => expect(screen.getAllByText(/1\.0k|1,000|1000/).length).toBeGreaterThan(0));
     });
 
     it('does not show volume when zero', async () => {
@@ -278,10 +279,14 @@ describe('SessionDetailPage', () => {
       expect(screen.queryByRole('button', { name: /finish/i })).not.toBeInTheDocument();
     });
 
-    it('cancelled status: no Start / Finish / Edit / Cancel buttons', async () => {
+    it('cancelled status: shows Edit button but no Start / Finish / Cancel buttons', async () => {
       await renderPage(makeSession({ status: 'cancelled' }));
       await waitFor(() => expect(screen.getByText('Push Day')).toBeInTheDocument());
-      expect(screen.queryByRole('button', { name: /start|finish|edit|cancel/i })).not.toBeInTheDocument();
+      // Cancelled sessions are "isCompleted" so they get an Edit/Lock toggle
+      expect(screen.getByRole('button', { name: /edit|lock/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^start$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^finish$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^cancel$/i })).not.toBeInTheDocument();
     });
 
     it('status badge shown in header for non-in_progress sessions', async () => {
@@ -343,7 +348,8 @@ describe('SessionDetailPage', () => {
     it('shows set count badge', async () => {
       const se = makeExercise({ id: 'se-1', sets: [makeSet({ id: 's1', set_number: 1 }), makeSet({ id: 's2', set_number: 2 })] });
       await renderPage(makeSession({ exercises: [se] }));
-      await waitFor(() => expect(screen.getByText('0 / 2')).toBeInTheDocument());
+      // Badge format is "completed/total" with no spaces
+      await waitFor(() => expect(screen.getByText('0/2')).toBeInTheDocument());
     });
   });
 
@@ -595,8 +601,9 @@ describe('SessionDetailPage', () => {
         })],
       });
       await renderPage(session);
-      await waitFor(() => screen.getByText('+ Add Set'));
-      fireEvent.click(screen.getByText('+ Add Set'));
+      // "Add Set" button — the "+" is an SVG icon, not text
+      await waitFor(() => screen.getByText('Add Set'));
+      fireEvent.click(screen.getByText('Add Set'));
       await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
         '/api/sessions/session-exercises/se-1/sets',
         expect.objectContaining({ set_number: 4 }),
@@ -744,8 +751,9 @@ describe('SessionDetailPage', () => {
       jest.spyOn(require('next/navigation'), 'useRouter').mockReturnValue({ back: backFn, push: mockPush });
       await renderPage(makeSession());
       await waitFor(() => screen.getByText('Push Day'));
-      // The back chevron button
-      const backBtn = document.querySelector('button[class*="lucide-chevron-left"]') as HTMLButtonElement;
+      // The back button wraps a ChevronLeft SVG — find the SVG then climb to its button
+      const chevronSvg = document.querySelector('.lucide-chevron-left');
+      const backBtn = chevronSvg?.closest('button') as HTMLButtonElement | null;
       if (backBtn) {
         await act(async () => {
           fireEvent.click(backBtn);
@@ -805,8 +813,9 @@ describe('SessionDetailPage', () => {
         })],
       });
       await renderPage(session);
-      await waitFor(() => expect(screen.getByText(/1,000|1000/)).toBeInTheDocument());
-      expect(screen.queryByText(/2,000|2000/)).not.toBeInTheDocument();
+      // 1000 lbs formats as "1.0k lbs" (shown in header and/or exercise row)
+      await waitFor(() => expect(screen.getAllByText(/1\.0k|1,000|1000/).length).toBeGreaterThan(0));
+      expect(screen.queryByText(/2\.0k|2,000|2000/)).not.toBeInTheDocument();
     });
 
     it('formats large volumes with k suffix', async () => {

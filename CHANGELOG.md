@@ -6,6 +6,127 @@ All notable changes to this project are documented here.
 
 ## [Unreleased] — 2026-04-04
 
+### Added
+
+#### Frontend test suite — new coverage (`frontend/src/__tests__/`)
+
+Built a comprehensive frontend test suite from scratch covering all previously untested layers. All 160 tests pass.
+
+**`utils.test.ts`** (10 tests)
+- `cn()`: class merging, falsy filtering, Tailwind deduplication
+- `formatStatus()`: underscore-to-space conversion, capitalisation
+
+**`api.test.ts`** (18 tests)
+- `paramsSerializer`: arrays repeat the key, null/undefined values are omitted, scalars serialised correctly, empty params returns `""`
+- Axios defaults: `withCredentials`, `Content-Type`, interceptor registration
+- 401 response interceptor: always rejects the promise; redirects to `/login` on 401 outside of `/login`
+
+**`auth-context.test.tsx`** (13 tests)
+- `AuthProvider` mount: `isLoading` starts true, resolves after `/api/auth/me`; user set on success, stays null on error
+- `login()`: calls `POST /api/auth/login`, re-fetches `/me`, propagates API errors
+- `register()`: calls `POST /api/auth/register` with correct payload, re-fetches `/me`
+- `logout()`: calls `POST /api/auth/logout`, clears user immediately
+- `useAuth()` outside provider: throws with clear error message
+
+**`auth-guard.test.tsx`** (7 tests)
+- Loading: spinner shown while `isLoading` is true
+- Unauthenticated on protected path: `router.replace('/login')` called, renders null
+- Authenticated: children rendered on any path, no redirect
+- Public paths (`/login`, `/register`, sub-paths): children rendered without redirect when unauthenticated
+
+**`login-page.test.tsx`** (13 tests)
+- Renders all fields and submit button; register link present
+- Password visibility toggle (show / hide)
+- Successful login: calls `auth.login()`, navigates to `/`
+- Error handling: API detail message, HTTP 429 rate-limit message, generic fallback
+- Error clears before next submission
+- Loading state: button disabled with "Signing in…" text, inputs disabled
+
+**`register-page.test.tsx`** (17 tests)
+- Renders name, email, password fields
+- Password rules list hidden until typing begins
+- Each rule lights up green / red as conditions are met/unmet
+- Submit button disabled when password invalid
+- Successful registration: calls `auth.register()`, navigates to `/`
+- Error handling: "Email already registered" → "email already in use", API detail, generic fallback
+- Password visibility toggle
+- Loading state: inputs disabled, "Creating account…" text shown
+
+**`sessions-page.test.tsx`** (13 tests)
+- Loading: skeleton placeholders visible while data fetches
+- Empty state: "No sessions yet" + create button
+- Stats strip: total count and volume values rendered correctly
+- Upcoming section: scheduled and in_progress sessions appear
+- History section: completed sessions rendered; empty-month placeholder shown
+- Delete: `DELETE /api/sessions/:id` called on swipe/button
+- Session card navigation: click navigates to `/sessions/:id`
+
+#### Frontend test suite — pre-existing test fixes (`session-detail-page.test.tsx`)
+
+Fixed 6 tests that were broken due to page UI changes after the tests were originally written:
+
+| Test | Root cause | Fix |
+|---|---|---|
+| Volume shows `1,000` | Page now formats ≥1000 as `1.0k` | Regex updated to `/1\.0k\|1,000\|1000/`; use `getAllByText` (volume appears in both header and exercise row) |
+| Cancelled: no Edit button | `isCompleted` now includes `cancelled` — Edit button IS shown | Assertion flipped: expect Edit/Lock present, assert Start/Finish/Cancel absent |
+| Set badge `0 / 2` | Page renders `0/2` (no spaces) | Changed to `'0/2'` |
+| `+ Add Set` | `+` is an SVG icon, not text | Changed to `'Add Set'` |
+| Back button selector | Selector `button[class*="lucide-chevron-left"]` targets the button but class is on the child SVG | Changed to `querySelector('.lucide-chevron-left')?.closest('button')` |
+| Volume calculation `/1,000\|1000/` | Same format change as above | Same fix as volume test |
+
+#### Backend test suite — new coverage (`backend/tests/`)
+
+Built a backend test suite covering the previously untested API surface. All 91 tests pass (83 new + 8 pre-existing).
+
+**`tests/conftest.py`** — shared fixtures
+- In-memory SQLite database (created and dropped per test function for full isolation)
+- `db_session`: fresh `AsyncSession` per test
+- `client`: `AsyncClient` wired to the FastAPI app; overrides `get_db` dependency and patches `async_session` module-level references in auth / exercises / meso_cycles / suggestions routers
+- `test_user`, `auth_headers` (JWT cookie), `test_exercise`, `test_cycle`, `test_session` factory fixtures
+
+**`tests/test_auth.py`** (14 tests)
+- `POST /api/auth/register`: success (cookie set, user_id returned), duplicate email → 400, invalid email → 422
+- `POST /api/auth/login`: success (cookie set), wrong password → 401, unknown email → 401, rate limit (6th attempt) → 429
+- `POST /api/auth/logout`: 200, `access_token` cookie cleared
+- `GET /api/auth/me`: returns user fields for authenticated request; 401 when unauthenticated
+
+**`tests/test_exercises.py`** (18 tests)
+- `GET /api/exercises`: empty list, all exercises, filtered by `muscle_group`
+- `GET /api/exercises/{id}`: found (fields correct), 404
+- `POST /api/exercises`: requires auth (401 without cookie), weighted, bodyweight, with description
+- `PUT /api/exercises/{id}`: rename, partial update (other fields unchanged), 404
+- `DELETE /api/exercises/{id}`: removed + confirmed via GET, 404
+- `GET /api/exercises/{id}/history`: empty, with sets (volume calculated), user isolation (other users' sessions excluded)
+
+**`tests/test_meso_cycles.py`** (16 tests)
+- `GET /api/meso-cycles`: empty, own cycles returned, other users' cycles excluded, requires auth
+- `GET /api/meso-cycles/{id}`: found, 404
+- `POST /api/meso-cycles`: requires auth, full payload, minimal payload
+- `PUT /api/meso-cycles/{id}`: name change, deactivate, 404
+- `DELETE /api/meso-cycles/{id}`: deleted + confirmed, 404
+- `GET /api/meso-cycles/{id}/micro-cycles`: empty list
+- `POST /api/meso-cycles/{id}/micro-cycles`: created with correct week_number, focus, parent ID; list shows both after two creates
+
+**`tests/test_sessions.py`** (35 tests)
+- `GET /api/sessions`: empty, own sessions, excludes other users, requires auth
+- `GET /api/sessions/{id}`: found (includes `exercises` array), 404
+- `POST /api/sessions`: requires auth, success (user_id, status), with notes
+- `PUT /api/sessions/{id}`: name, notes, 404
+- `DELETE /api/sessions/{id}`: success, 404, cascades to child sets
+- `POST /{id}/start`: transitions to `in_progress`, sets `start_time`, 404
+- `POST /{id}/complete`: transitions to `completed`, volume = `reps × weight` for non-warmup sets only, warmup sets excluded, 404
+- `POST /{id}/cancel`: transitions to `cancelled`, 404
+- `POST /{id}/exercises`: exercise added with correct `exercise_id`
+- `DELETE /session-exercises/{se_id}`: removed, 404
+- `POST /session-exercises/{se_id}/sets`: set created with correct fields, `is_completed=False` by default
+- `PUT /exercise-sets/{set_id}`: mark completed, update weight/reps/RPE, 404
+- `DELETE /exercise-sets/{set_id}`: deleted, 404
+- `GET /{id}/pre-summary`: fields present, volume calculation, 404
+
+---
+
+## [Unreleased] — 2026-04-04 (continued)
+
 ### Fixed
 
 #### Session page — "Prev" rendering bug
