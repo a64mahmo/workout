@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 ---
 
+## [Unreleased] — 2026-04-04
+
+### Added
+
+#### Test suite
+- **Backend** — 105 integration tests across 5 files using pytest + pytest-asyncio. Each test gets a fresh SQLite schema so there is no shared state between runs.
+  - `test_auth.py` — register, login, logout, `/me`, duplicate email, invalid email, rate-limiting (429 after 5 failed attempts)
+  - `test_sessions.py` — full session lifecycle (create → start → add exercise → log sets → complete/cancel), volume calculation, warmup exclusion, PR detection, pre-summary workout number
+  - `test_exercises.py` — CRUD, muscle group filter, exercise history (warmup exclusion, user isolation, `limit` cap)
+  - `test_suggestions.py` — all RPE thresholds (`< 7` / `7–8` / `8–9` / `9–9.5` / `≥ 9.5`), top-set reference logic, 2.5 lb rounding, no-RPE fallback, meso cycle filter, suggestion log creation, outcome recording, cross-user 404
+  - `test_meso_cycles.py` — CRUD, micro cycle management, cascade delete, all focus types
+- **Frontend** — 42 tests across 3 files using Jest + React Testing Library + `@testing-library/user-event`.
+  - `auth-context.test.tsx` — loading state, user resolution, login/register/logout flows, API error propagation, `useAuth` outside-provider guard
+  - `login-page.test.tsx` — form rendering, password show/hide toggle, loading state (spinner + disabled inputs), error messages (401, 429, generic network), error clear on resubmit, input re-enable after failure
+  - `suggestion-algorithm.test.ts` — pure TypeScript mirror of the RP weight algorithm; all threshold branches, rounding edge cases, top-set logic, no-RPE single/two-session paths, RPE averaging across sets
+- **GitHub Actions CI** (`.github/workflows/ci.yml`) — `backend` and `frontend` jobs run in parallel on every push and PR; a `build` job runs `docker build` on `master`/`prod`, gated behind both test jobs.
+- `pytest.ini` added to `backend/` with `asyncio_mode = auto`.
+- `npm test`, `npm run test:watch`, `npm run test:ci` scripts added to `frontend/package.json`.
+- `@testing-library/user-event` added to frontend dev dependencies.
+
+---
+
 ## [Unreleased] — 2026-04-02
 
 ### Added
