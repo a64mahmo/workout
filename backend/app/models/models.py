@@ -74,6 +74,7 @@ class TrainingSession(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"))
     micro_cycle_id = Column(String, ForeignKey("micro_cycles.id"))
+    plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=True)
     name = Column(String, nullable=False)
     scheduled_date = Column(String)
     actual_date = Column(String)
@@ -104,7 +105,7 @@ class SessionExercise(Base):
 
     session = relationship("TrainingSession", back_populates="session_exercises")
     exercise = relationship("Exercise", back_populates="session_exercises")
-    sets = relationship("ExerciseSet", back_populates="session_exercise", cascade="all, delete-orphan")
+    sets = relationship("ExerciseSet", back_populates="session_exercise", cascade="all, delete-orphan", order_by="ExerciseSet.set_number")
 
 class ExerciseSet(Base):
     __tablename__ = "exercise_sets"

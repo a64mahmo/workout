@@ -15,7 +15,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import type { WorkoutPlan, MesoCycle } from '@/types';
-import { ClipboardList, Plus, Trash2, ChevronRight } from 'lucide-react';
+import { ClipboardList, Plus, Trash2, ChevronRight, Calendar } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 
 export default function PlansPage() {
   const router = useRouter();
@@ -29,6 +30,19 @@ export default function PlansPage() {
     queryKey: ['plans'],
     queryFn: async () => {
       const res = await api.get('/api/plans');
+      return res.data;
+    },
+  });
+
+  const { data: progress } = useQuery<Record<string, {
+    current_week: number;
+    last_completed_at: string | null;
+    last_session_name: string;
+    completed_session_ids: string[];
+  }>>({
+    queryKey: ['plans-progress'],
+    queryFn: async () => {
+      const res = await api.get('/api/plans/progress');
       return res.data;
     },
   });
@@ -160,10 +174,19 @@ export default function PlansPage() {
           const cycle = cycles?.find(c => c.id === plan.meso_cycle_id);
           const sessionCount = plan.plan_sessions.length;
           const exerciseCount = plan.plan_sessions.reduce((t, s) => t + s.exercises.length, 0);
+          const planProgress = progress?.[plan.id];
+          const totalWeeks = plan.plan_sessions.length > 0
+            ? Math.max(...plan.plan_sessions.map(s => s.week_number))
+            : 0;
+          const completedCount = planProgress
+            ? new Set(planProgress.completed_session_ids).size
+            : 0;
+          const progressPct = sessionCount > 0 ? Math.min(100, Math.round((completedCount / sessionCount) * 100)) : 0;
+
           return (
             <div
               key={plan.id}
-              className="rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer"
+              className="rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer overflow-hidden"
               onClick={() => router.push(`/plans/${plan.id}`)}
             >
               <div className="flex items-center gap-4 p-4">
@@ -180,9 +203,42 @@ export default function PlansPage() {
                   {plan.description && (
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">{plan.description}</p>
                   )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {sessionCount} session{sessionCount !== 1 ? 's' : ''} · {exerciseCount} exercise{exerciseCount !== 1 ? 's' : ''}
-                  </p>
+
+                  {planProgress ? (
+                    <div className="mt-1.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-primary">
+                          Week {planProgress.current_week} of {totalWeeks}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {completedCount}/{sessionCount} sessions
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all duration-500"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      {planProgress.last_completed_at && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Calendar className="size-3" />
+                          <span>
+                            Last: {planProgress.last_session_name.replace(/^Week\s+\d+\s*[-–]\s*/i, '')}
+                            {' · '}
+                            {formatDistanceToNow(new Date(planProgress.last_completed_at), { addSuffix: true })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {totalWeeks > 0 ? `${totalWeeks} weeks` : `${sessionCount} session${sessionCount !== 1 ? 's' : ''}`}
+                      {' · '}{exerciseCount} exercise{exerciseCount !== 1 ? 's' : ''}
+                      {' · '}
+                      <span className="text-muted-foreground/60">Not started</span>
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
