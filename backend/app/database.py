@@ -1,7 +1,7 @@
 import os
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import event, text
@@ -171,7 +171,7 @@ async def migrate_volume_history() -> None:
                             exercise_id=eid,
                             session_id=sid,
                             total_volume=float(vol),
-                            calculated_at=datetime.utcnow()
+                            calculated_at=datetime.now(timezone.utc).replace(tzinfo=None)
                         )
                     )
             

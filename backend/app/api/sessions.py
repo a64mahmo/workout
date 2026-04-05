@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete as sa_delete, func
 from sqlalchemy.orm import selectinload
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from app.database import get_db
@@ -137,10 +137,10 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.start_time = datetime.utcnow()
+    db_session.start_time = datetime.now(timezone.utc).replace(tzinfo=None)
     db_session.status = "in_progress"
     if not db_session.actual_date:
-        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+        db_session.actual_date = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
     await db.commit()
     return {"message": "Session started", "start_time": db_session.start_time.isoformat()}
 
@@ -167,7 +167,7 @@ async def get_session_pre_summary(session_id: str, db: AsyncSession = Depends(ge
 
     duration_seconds = None
     if db_session.start_time:
-        duration_seconds = int((datetime.utcnow() - db_session.start_time).total_seconds())
+        duration_seconds = int((datetime.now(timezone.utc).replace(tzinfo=None) - db_session.start_time).total_seconds())
 
     prs = []
     for se in db_session.session_exercises:
@@ -228,9 +228,10 @@ async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     
     db_session.status = "completed"
-    db_session.end_time = datetime.utcnow()
+    db_session.start_time = datetime.now(timezone.utc).replace(tzinfo=None)
     if not db_session.actual_date:
-        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+        db_session.actual_date = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
+
     if not db_session.start_time:
         db_session.start_time = db_session.end_time
     

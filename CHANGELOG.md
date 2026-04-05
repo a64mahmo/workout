@@ -4,7 +4,31 @@ All notable changes to this project are documented here.
 
 ---
 
-## [Unreleased] — 2026-04-05 (latest)
+## [Unreleased] — 2026-04-05 (Production Hardening & Performance)
+
+### Added
+- **Alembic Migration Framework**: Formalized database schema management using Alembic. Replaces fragile startup migrations with a versioned, rollback-capable history.
+- **Regression Testing Suite**: 
+    - `backend/tests/test_datetime_safety.py`: Guarantees all models use timezone-aware columns and prevents production calculation crashes.
+    - `backend/tests/test_progression_service.py`: 100% logic verification for the RP algorithm (Accumulation, Peak, Deload).
+    - `frontend/src/__tests__/settings-page.test.tsx`: E2E coverage for user preferences, theme persistence, and data sync.
+    - `frontend/src/__tests__/session-deep-dives.test.tsx`: Verifies the "Add Sets" volume logic and the suggestion-feedback loop.
+- **Manual Data Sync**: Added "Sync Volume History" button in Settings to manually trigger historical volume backfills.
+
+### Changed
+- **Cross-DB Timezone Compatibility**: Standardized on `TIMESTAMPTZ` in PostgreSQL while maintaining SQLite compatibility via "Force-Naive UTC" logic. This resolves production 500 errors caused by strict timezone handling in `asyncpg`.
+- **Progression Service Layer**: Extracted core hypertrophy logic from API controllers into a dedicated `ProgressionService`, enabling database-independent unit testing and cleaner architecture.
+- **Volume Query Optimization**: Refactored Suggestions and Muscle Group charts to use the `VolumeHistory` summary table. Drastically reduced complexity from $O(Sets)$ to $O(Sessions)$.
+- **Circular Feedback Loop**: The frontend now automatically records "actual" weight/reps against AI suggestions upon set completion, closing the audit loop for progression history.
+- **Mobile Readability**: Improved responsive layout using `break-words` for session titles, exercise names, and suggestion reasons to prevent mobile overflow.
+- **Database Indexing**: Added `index=True` to all critical foreign keys to ensure fast joins as the dataset grows.
+
+### Fixed
+- **Session Data Bleed**: Fixed a bug where unsaved set inputs could persist when navigating between different workouts without a page refresh.
+- **Distributed Migration Race Condition**: Moved background data migrations to an explicit `migrate_data.py` script to prevent database locks in multi-worker production environments.
+- **Fitbit UI Restore**: Restored the Fitbit integration section in Settings that was accidentally regressed.
+
+---
 
 ### Changed
 

@@ -20,7 +20,7 @@ _login_attempts: dict[str, list] = defaultdict(list)
 
 
 def _check_rate_limit(ip: str) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     window = now - timedelta(minutes=15)
     recent = [t for t in _login_attempts[ip] if t > window]
     if len(recent) >= 5:
@@ -33,7 +33,7 @@ def _check_rate_limit(ip: str) -> None:
 
 
 def _create_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     return jwt.encode({"sub": user_id, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 

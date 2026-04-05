@@ -11,13 +11,13 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Fitbit OAuth fields
     fitbit_access_token = Column(String, nullable=True)
     fitbit_refresh_token = Column(String, nullable=True)
     fitbit_user_id = Column(String, nullable=True)
-    fitbit_token_expires_at = Column(DateTime, nullable=True)
+    fitbit_token_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     meso_cycles = relationship("MesoCycle", back_populates="user")
     sessions = relationship("TrainingSession", back_populates="user")
@@ -34,7 +34,7 @@ class Exercise(Base):
     muscle_group = Column(String, nullable=False, index=True)
     category = Column(String, nullable=False, default='weighted', server_default='weighted')
     description = Column(Text)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship("User", foreign_keys=[user_id])
     session_exercises = relationship("SessionExercise", back_populates="exercise")
@@ -50,7 +50,7 @@ class MesoCycle(Base):
     end_date = Column(String)
     goal = Column(String)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship("User", back_populates="meso_cycles")
     micro_cycles = relationship("MicroCycle", back_populates="meso_cycle", cascade="all, delete-orphan")
@@ -85,8 +85,8 @@ class TrainingSession(Base):
     total_volume = Column(Float, default=0)
 
     # Fitbit session fields
-    start_time = Column(DateTime, nullable=True)
-    end_time = Column(DateTime, nullable=True)
+    start_time = Column(DateTime(timezone=True), nullable=True)
+    end_time = Column(DateTime(timezone=True), nullable=True)
     average_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
 
@@ -144,9 +144,9 @@ class HealthMetric(Base):
     # Fitbit daily stats cache
     steps = Column(Integer, nullable=True)
     resting_hr = Column(Integer, nullable=True)
-    fitbit_synced_at = Column(DateTime, nullable=True)
+    fitbit_synced_at = Column(DateTime(timezone=True), nullable=True)
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     user = relationship("User", back_populates="health_metrics")
     session = relationship("TrainingSession", back_populates="health_metric")
 
@@ -158,7 +158,7 @@ class VolumeHistory(Base):
     exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False, index=True)
     session_id = Column(String, ForeignKey("training_sessions.id"), nullable=False, index=True)
     total_volume = Column(Float, default=0)
-    calculated_at = Column(DateTime, default=datetime.utcnow)
+    calculated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship("User", back_populates="volume_history")
     exercise = relationship("Exercise", back_populates="volume_history")
@@ -171,7 +171,7 @@ class Plan(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship("User", back_populates="plans")
     sessions = relationship("PlanSession", back_populates="plan", cascade="all, delete-orphan")
@@ -211,7 +211,7 @@ class SuggestionLog(Base):
     actual_reps = Column(Integer, nullable=True)
     actual_rpe = Column(Float, nullable=True)
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     user = relationship("User")
     exercise = relationship("Exercise")

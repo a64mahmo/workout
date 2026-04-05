@@ -1,7 +1,7 @@
 import httpx
 import base64
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from httpx import HTTPStatusError
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlencode
@@ -54,7 +54,7 @@ class FitbitService:
             user.fitbit_access_token = token_data["access_token"]
             user.fitbit_refresh_token = token_data["refresh_token"]
             user.fitbit_user_id = token_data["user_id"]
-            user.fitbit_token_expires_at = datetime.now() + timedelta(seconds=token_data["expires_in"])
+            user.fitbit_token_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=token_data["expires_in"])
 
             db.add(user)
             await db.commit()
@@ -62,7 +62,7 @@ class FitbitService:
             return token_data
 
     async def _refresh_token(self, db: AsyncSession, user: User) -> str:
-        if user.fitbit_token_expires_at and user.fitbit_token_expires_at > datetime.now() + timedelta(minutes=5):
+        if user.fitbit_token_expires_at and user.fitbit_token_expires_at > datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5):
             return user.fitbit_access_token
 
         auth_header = base64.b64encode(f"{FITBIT_CLIENT_ID}:{FITBIT_CLIENT_SECRET}".encode()).decode()
@@ -83,7 +83,7 @@ class FitbitService:
             new_access_token = token_data["access_token"]
             user.fitbit_access_token = new_access_token
             user.fitbit_refresh_token = token_data["refresh_token"]
-            user.fitbit_token_expires_at = datetime.now() + timedelta(seconds=token_data["expires_in"])
+            user.fitbit_token_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=token_data["expires_in"])
 
             db.add(user)
             await db.commit()
@@ -159,12 +159,12 @@ class FitbitService:
         return result.scalars().first()
 
     async def get_today_stats(self, db: AsyncSession, user: User, date: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
-        today = date if date else datetime.now().strftime("%Y-%m-%d")
+        today = date if date else datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
 
         # Return from DB cache if fresh (< 3 hours) and not a forced sync
         cached = await self._get_cached_metric(db, user.id, today)
         if not force and cached and cached.fitbit_synced_at:
-            age_seconds = (datetime.now() - cached.fitbit_synced_at).total_seconds()
+            age_seconds = (datetime.now(timezone.utc).replace(tzinfo=None) - cached.fitbit_synced_at).total_seconds()
             if age_seconds < 3 * 3600:
                 return self._metric_to_stats(cached)
 
@@ -260,7 +260,7 @@ class FitbitService:
             # No prior cache — save placeholder so we don't hammer the API every request
             await self._save_today_stats(
                 db, user.id, today, stats,
-                synced_at=datetime.now() - timedelta(hours=2, minutes=55),  # 5-min TTL
+                synced_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2, minutes=55),  # 5-min TTL
             )
         else:
             await self._save_today_stats(db, user.id, today, stats)
@@ -284,7 +284,7 @@ class FitbitService:
         metric.sleep_duration_seconds = stats.get("sleep_duration_seconds")
         metric.sleep_score = stats.get("sleep_score")
         metric.sleep_efficiency = stats.get("sleep_efficiency")
-        metric.fitbit_synced_at = synced_at if synced_at is not None else datetime.now()
+        metric.fitbit_synced_at = synced_at if synced_at is not None else datetime.now(timezone.utc).replace(tzinfo=None)
         db.add(metric)
         try:
             await db.commit()
