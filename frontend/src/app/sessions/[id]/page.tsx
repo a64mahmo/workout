@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { BottomSheet, BottomSheetTrigger, BottomSheetContent } from '@/components/ui/bottom-sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { computeGhostMap } from '@/lib/ghost-map';
 import type {
@@ -309,7 +311,7 @@ function ExerciseHistoryPanel({ exerciseId, open, isBodyweight = false }: {
             <div key={i} className="rounded-lg border border-border/40 bg-background/60 px-3 py-2">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-medium">
-                  {entry.session_date ? format(new Date(entry.session_date + 'T00:00:00'), 'MMM d') : '—'}
+                  {entry.session_date ? format(new Date(entry.session_date + 'T00:00:00'), 'MMM d, yyyy') : '—'}
                 </span>
                 {!isBodyweight && (
                   <span className="text-xs text-muted-foreground tabular-nums">
@@ -570,6 +572,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  const [addMuscleFilter, setAddMuscleFilter] = useState<string | null>(null);
+  const [addCategoryFilter, setAddCategoryFilter] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -588,6 +592,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [justCompletedSetId, setJustCompletedSetId] = useState<string | null>(null);
   const [replaceExerciseSeId, setReplaceExerciseSeId] = useState<string | null>(null);
   const [replaceExerciseSearch, setReplaceExerciseSearch] = useState('');
+  const [replaceMuscleFilter, setReplaceMuscleFilter] = useState<string | null>(null);
+  const [replaceCategoryFilter, setReplaceCategoryFilter] = useState<string | null>(null);
   const [replaceUndo, setReplaceUndo] = useState<{
     oldExerciseId: string;
     oldExerciseName: string;
@@ -708,14 +714,26 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const addedIds = new Set(session?.exercises.map(se => se.exercise_id) ?? []);
 
-  const filteredExercises = allExercises?.filter(
-    ex => !addedIds.has(ex.id) && ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
-  ) ?? [];
+  const filteredExercises = allExercises?.filter(ex => {
+    if (addedIds.has(ex.id)) return false;
+    if (exerciseSearch && !ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())) return false;
+    if (addMuscleFilter && ex.muscle_group?.toLowerCase() !== addMuscleFilter) return false;
+    if (addCategoryFilter && ex.category?.toLowerCase() !== addCategoryFilter) return false;
+    return true;
+  }) ?? [];
+  const addMuscleGroups = [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort();
+  const addCategories = [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort();
 
   const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id;
-  const replaceFilteredExercises = allExercises?.filter(
-    ex => ex.id !== replaceCurrentExerciseId && ex.name.toLowerCase().includes(replaceExerciseSearch.toLowerCase())
-  ) ?? [];
+  const replaceFilteredExercises = allExercises?.filter(ex => {
+    if (ex.id === replaceCurrentExerciseId) return false;
+    if (replaceExerciseSearch && !ex.name.toLowerCase().includes(replaceExerciseSearch.toLowerCase())) return false;
+    if (replaceMuscleFilter && ex.muscle_group?.toLowerCase() !== replaceMuscleFilter) return false;
+    if (replaceCategoryFilter && ex.category?.toLowerCase() !== replaceCategoryFilter) return false;
+    return true;
+  }) ?? [];
+  const replaceMuscleGroups = [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort();
+  const replaceCategories = [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort();
 
   const totalVolume = useMemo(
     () => session?.exercises.reduce(
@@ -1593,51 +1611,95 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       {/* ── Add Exercise ───────────────────────────────────────────────────── */}
       {isEditing && (
-      <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
-        <DialogTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
-        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
-          <DialogHeader className="shrink-0"><DialogTitle>Add Exercise</DialogTitle></DialogHeader>
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} className="shrink-0" />
-            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
-              {filteredExercises.length === 0
-                ? <p className="text-sm text-muted-foreground py-6 text-center">{exerciseSearch ? 'No matches' : 'All exercises added'}</p>
-                : filteredExercises.map(ex => (
-                    <button key={ex.id} onClick={() => addExerciseMutation.mutate(ex.id)}
-                      disabled={addExerciseMutation.isPending}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors flex items-center justify-between gap-3">
-                      <span className="font-medium text-sm">{ex.name}</span>
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
-                    </button>
-                  ))}
-            </div>
+      <BottomSheet open={addExerciseOpen} onOpenChange={open => { setAddExerciseOpen(open); if (!open) { setExerciseSearch(''); setAddMuscleFilter(null); setAddCategoryFilter(null); } }}>
+        <BottomSheetTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
+        <BottomSheetContent title="Add Exercise">
+          <div className="px-4 pb-2 shrink-0">
+            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} autoFocus className="h-11 text-base" />
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="px-4 pb-3 shrink-0 flex gap-2">
+            <Select value={addMuscleFilter ?? ''} onValueChange={v => setAddMuscleFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm">
+                <SelectValue placeholder="Muscle group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All muscles</SelectItem>
+                {addMuscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={addCategoryFilter ?? ''} onValueChange={v => setAddCategoryFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm capitalize">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All types</SelectItem>
+                {addCategories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-8">
+            {filteredExercises.length === 0
+              ? <p className="text-sm text-muted-foreground py-8 text-center">{exerciseSearch || addMuscleFilter || addCategoryFilter ? 'No matches' : 'All exercises added'}</p>
+              : filteredExercises.map(ex => (
+                  <button key={ex.id} onClick={() => addExerciseMutation.mutate(ex.id)}
+                    disabled={addExerciseMutation.isPending}
+                    className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
+                    </div>
+                    <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
+                  </button>
+                ))}
+          </div>
+        </BottomSheetContent>
+      </BottomSheet>
       )}
 
       {/* ── Replace Exercise ──────────────────────────────────────────────── */}
-      <Dialog open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); } }}>
-        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
-          <DialogHeader className="shrink-0"><DialogTitle>Replace Exercise</DialogTitle></DialogHeader>
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} className="shrink-0" />
-            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
-              {replaceFilteredExercises.length === 0
-                ? <p className="text-sm text-muted-foreground py-6 text-center">{replaceExerciseSearch ? 'No matches' : 'Loading…'}</p>
-                : replaceFilteredExercises.map(ex => (
-                    <button key={ex.id}
-                      onClick={() => replaceExerciseMutation.mutate({ oldSeId: replaceExerciseSeId!, newExerciseId: ex.id })}
-                      disabled={replaceExerciseMutation.isPending}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors flex items-center justify-between gap-3">
-                      <span className="font-medium text-sm">{ex.name}</span>
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
-                    </button>
-                  ))}
-            </div>
+      <BottomSheet open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); setReplaceMuscleFilter(null); setReplaceCategoryFilter(null); } }}>
+        <BottomSheetContent title="Replace Exercise">
+          <div className="px-4 pb-2 shrink-0">
+            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} autoFocus className="h-11 text-base" />
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="px-4 pb-3 shrink-0 flex gap-2">
+            <Select value={replaceMuscleFilter ?? ''} onValueChange={v => setReplaceMuscleFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm">
+                <SelectValue placeholder="Muscle group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All muscles</SelectItem>
+                {replaceMuscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={replaceCategoryFilter ?? ''} onValueChange={v => setReplaceCategoryFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm capitalize">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All types</SelectItem>
+                {replaceCategories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-8">
+            {replaceFilteredExercises.length === 0
+              ? <p className="text-sm text-muted-foreground py-8 text-center">{replaceExerciseSearch || replaceMuscleFilter || replaceCategoryFilter ? 'No matches' : 'Loading…'}</p>
+              : replaceFilteredExercises.map(ex => (
+                  <button key={ex.id}
+                    onClick={() => replaceExerciseMutation.mutate({ oldSeId: replaceExerciseSeId!, newExerciseId: ex.id })}
+                    disabled={replaceExerciseMutation.isPending}
+                    className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
+                    </div>
+                    <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
+                  </button>
+                ))}
+          </div>
+        </BottomSheetContent>
+      </BottomSheet>
 
       {/* ── Replace undo snackbar ────────────────────────────────────────────── */}
       {replaceUndo && (

@@ -20,7 +20,7 @@
  *  - Back navigation
  */
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import {
   render,
   screen,
@@ -147,7 +147,9 @@ function renderPage(session: TrainingSession | null, isLoading = false) {
 
   const { rerender, ...rest } = render(
     <QueryClientProvider client={qc}>
-      <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+      <Suspense fallback={<div data-testid="suspense-fallback" />}>
+        <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+      </Suspense>
     </QueryClientProvider>,
   );
 
@@ -165,10 +167,13 @@ describe('SessionDetailPage', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={qc}>
-          <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+          <Suspense fallback={<div data-testid="suspense-fallback" />}>
+            <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+          </Suspense>
         </QueryClientProvider>,
       );
-      // animate-pulse skeletons should be present before data arrives
+      // Flush params promise so component exits Suspense and enters loading state
+      await act(async () => {});
       const skeletons = document.querySelectorAll('.animate-pulse');
       expect(skeletons.length).toBeGreaterThan(0);
     });
@@ -181,7 +186,9 @@ describe('SessionDetailPage', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={qc}>
-          <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+          <Suspense fallback={<div data-testid="suspense-fallback" />}>
+            <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+          </Suspense>
         </QueryClientProvider>,
       );
       await waitFor(() => expect(screen.getByText(/session not found/i)).toBeInTheDocument());
