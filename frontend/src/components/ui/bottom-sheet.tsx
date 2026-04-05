@@ -33,11 +33,9 @@ const BottomSheetContent = React.forwardRef<
       )}
       {...props}
     >
-      {/* drag handle */}
       <div className="flex justify-center pt-3 pb-1 shrink-0">
         <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
       </div>
-      {/* header row */}
       <div className="flex items-center justify-between px-4 pb-3 shrink-0">
         <DialogPrimitive.Title className="font-semibold text-base">{title}</DialogPrimitive.Title>
         <DialogPrimitive.Close

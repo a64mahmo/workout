@@ -547,8 +547,7 @@ function ConfettiEffect({ active }: { active: boolean }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export function SessionDetailInner({ id }: { id: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -671,7 +670,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const initializedSessionIdRef = useRef<string | null>(null);
 
   // Auto-enable editing for non-completed sessions
-  const isCompleted = session?.status === 'completed' || session?.status === 'cancelled';
   useEffect(() => {
     if (session && session.status !== 'completed' && session.status !== 'cancelled') {
       setIsEditing(true);
@@ -714,26 +712,24 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const addedIds = new Set(session?.exercises.map(se => se.exercise_id) ?? []);
 
-  const filteredExercises = allExercises?.filter(ex => {
-    if (addedIds.has(ex.id)) return false;
-    if (exerciseSearch && !ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())) return false;
-    if (addMuscleFilter && ex.muscle_group?.toLowerCase() !== addMuscleFilter) return false;
-    if (addCategoryFilter && ex.category?.toLowerCase() !== addCategoryFilter) return false;
-    return true;
-  }) ?? [];
-  const addMuscleGroups = [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort();
-  const addCategories = [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort();
+  const muscleGroups = useMemo(() => [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort(), [allExercises]);
+  const categories = useMemo(() => [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort(), [allExercises]);
 
-  const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id;
-  const replaceFilteredExercises = allExercises?.filter(ex => {
-    if (ex.id === replaceCurrentExerciseId) return false;
-    if (replaceExerciseSearch && !ex.name.toLowerCase().includes(replaceExerciseSearch.toLowerCase())) return false;
-    if (replaceMuscleFilter && ex.muscle_group?.toLowerCase() !== replaceMuscleFilter) return false;
-    if (replaceCategoryFilter && ex.category?.toLowerCase() !== replaceCategoryFilter) return false;
-    return true;
-  }) ?? [];
-  const replaceMuscleGroups = [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort();
-  const replaceCategories = [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort();
+  function filterExercises(excludeId: string | null, search: string, muscle: string | null, category: string | null) {
+    return (allExercises ?? []).filter(ex => {
+      if (ex.id === excludeId) return false;
+      if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (muscle && ex.muscle_group?.toLowerCase() !== muscle) return false;
+      if (category && ex.category?.toLowerCase() !== category) return false;
+      return true;
+    });
+  }
+
+  const filteredExercises = filterExercises(null, exerciseSearch, addMuscleFilter, addCategoryFilter)
+    .filter(ex => !addedIds.has(ex.id));
+
+  const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id ?? null;
+  const replaceFilteredExercises = filterExercises(replaceCurrentExerciseId, replaceExerciseSearch, replaceMuscleFilter, replaceCategoryFilter);
 
   const totalVolume = useMemo(
     () => session?.exercises.reduce(
@@ -1107,7 +1103,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   if (!session) return <div className="py-24 text-center text-muted-foreground">Session not found.</div>;
 
   let dateStr = session.scheduled_date;
-  try { dateStr = format(new Date(session.scheduled_date + 'T00:00:00'), 'EEEE, MMMM d'); } catch {}
+  try { dateStr = format(new Date(session.scheduled_date + 'T00:00:00'), 'EEEE, MMMM d, yyyy'); } catch {}
 
   const statusVariant =
     session.status === 'completed' ? 'default'
@@ -1138,7 +1134,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
           {/* Left: back */}
           <div className="flex justify-start">
-            <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
+            <Button variant="ghost" size="icon-sm" aria-label="Back" onClick={() => router.back()}>
               <ChevronLeft className="size-4" />
             </Button>
           </div>
@@ -1190,7 +1186,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 Finish
               </Button>
             )}
-            {isCompleted && (
+            {session.status === 'completed' && (
               <Button variant={isEditing ? 'default' : 'outline'} size="sm"
                 onClick={() => setIsEditing(!isEditing)} className="h-8 gap-1">
                 <Pencil className="size-3.5" />
@@ -1414,6 +1410,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
                       {isEditing && (
                         <button
+                          title="Remove exercise"
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
                           className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                         >
@@ -1624,7 +1621,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All muscles</SelectItem>
-                {addMuscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+                {muscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={addCategoryFilter ?? ''} onValueChange={v => setAddCategoryFilter(v || null)}>
@@ -1633,7 +1630,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All types</SelectItem>
-                {addCategories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+                {categories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -1669,7 +1666,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All muscles</SelectItem>
-                {replaceMuscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+                {muscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={replaceCategoryFilter ?? ''} onValueChange={v => setReplaceCategoryFilter(v || null)}>
@@ -1678,7 +1675,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All types</SelectItem>
-                {replaceCategories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+                {categories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -2127,4 +2124,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
     </div>
   );
+}
+
+export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <SessionDetailInner id={id} />;
 }

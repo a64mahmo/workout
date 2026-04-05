@@ -20,18 +20,16 @@
  *  - Back navigation
  */
 
-import React, { Suspense } from 'react';
 import {
   render,
   screen,
   fireEvent,
   waitFor,
   within,
-  act,
 } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import SessionDetailPage from '@/app/sessions/[id]/page';
+import { SessionDetailInner } from '@/app/sessions/[id]/page';
 import type { TrainingSession, SessionExercise, ExerciseSet, Exercise } from '@/types';
 
 // ─── mocks ──────────────────────────────────────────────────────────────────
@@ -147,9 +145,7 @@ function renderPage(session: TrainingSession | null, isLoading = false) {
 
   const { rerender, ...rest } = render(
     <QueryClientProvider client={qc}>
-      <Suspense fallback={<div data-testid="suspense-fallback" />}>
-        <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
-      </Suspense>
+      <SessionDetailInner id="session-1" />
     </QueryClientProvider>,
   );
 
@@ -167,13 +163,9 @@ describe('SessionDetailPage', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={qc}>
-          <Suspense fallback={<div data-testid="suspense-fallback" />}>
-            <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
-          </Suspense>
+          <SessionDetailInner id="session-1" />
         </QueryClientProvider>,
       );
-      // Flush params promise so component exits Suspense and enters loading state
-      await act(async () => {});
       const skeletons = document.querySelectorAll('.animate-pulse');
       expect(skeletons.length).toBeGreaterThan(0);
     });
@@ -186,9 +178,7 @@ describe('SessionDetailPage', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={qc}>
-          <Suspense fallback={<div data-testid="suspense-fallback" />}>
-            <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
-          </Suspense>
+          <SessionDetailInner id="session-1" />
         </QueryClientProvider>,
       );
       await waitFor(() => expect(screen.getByText(/session not found/i)).toBeInTheDocument());
@@ -219,7 +209,7 @@ describe('SessionDetailPage', () => {
         })],
       });
       renderPage(session);
-      await waitFor(() => expect(screen.getByText(/1,000|1000/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText(/1\.0k/).length).toBeGreaterThan(0));
     });
 
     it('does not show volume when zero', async () => {
@@ -338,7 +328,7 @@ describe('SessionDetailPage', () => {
     it('shows set count badge', async () => {
       const se = makeExercise({ id: 'se-1', sets: [makeSet({ id: 's1', set_number: 1 }), makeSet({ id: 's2', set_number: 2 })] });
       renderPage(makeSession({ exercises: [se] }));
-      await waitFor(() => expect(screen.getByText('0 / 2')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('0/2')).toBeInTheDocument());
     });
   });
 
@@ -590,8 +580,8 @@ describe('SessionDetailPage', () => {
         })],
       });
       renderPage(session);
-      await waitFor(() => screen.getByText('+ Add Set'));
-      fireEvent.click(screen.getByText('+ Add Set'));
+      await waitFor(() => screen.getByText('Add Set'));
+      fireEvent.click(screen.getByText('Add Set'));
       await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith(
         '/api/sessions/session-exercises/se-1/sets',
         expect.objectContaining({ set_number: 4 }),
@@ -716,7 +706,7 @@ describe('SessionDetailPage', () => {
       const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
       render(
         <QueryClientProvider client={qc}>
-          <SessionDetailPage params={Promise.resolve({ id: 'session-1' })} />
+          <SessionDetailInner id="session-1" />
         </QueryClientProvider>,
       );
       await waitFor(() => screen.getByText('Bench Press'));
@@ -738,8 +728,8 @@ describe('SessionDetailPage', () => {
       renderPage(makeSession());
       await waitFor(() => screen.getByText('Push Day'));
       // The back chevron button
-      const backBtn = document.querySelector('button[class*="ghost"]') as HTMLButtonElement;
-      if (backBtn) fireEvent.click(backBtn);
+      const backBtn = screen.getByRole('button', { name: /back/i });
+      fireEvent.click(backBtn);
       await waitFor(() => expect(backFn).toHaveBeenCalled());
     });
   });
@@ -794,8 +784,8 @@ describe('SessionDetailPage', () => {
         })],
       });
       renderPage(session);
-      await waitFor(() => expect(screen.getByText(/1,000|1000/)).toBeInTheDocument());
-      expect(screen.queryByText(/2,000|2000/)).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getAllByText(/1\.0k/).length).toBeGreaterThan(0));
+      expect(screen.queryAllByText(/2\.0k/)).toHaveLength(0);
     });
 
     it('formats large volumes with k suffix', async () => {
@@ -810,7 +800,7 @@ describe('SessionDetailPage', () => {
         })],
       });
       renderPage(session);
-      await waitFor(() => expect(screen.getByText(/6\.0k/)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getAllByText(/6\.0k/).length).toBeGreaterThan(0));
     });
   });
 

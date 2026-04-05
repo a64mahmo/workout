@@ -1,7 +1,11 @@
 import os
+import uuid
+import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import event, text
+
+log = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./workout.db")
 
@@ -65,9 +69,6 @@ async def migrate_exercise_ownership() -> None:
     One-time background migration: copy global exercises (user_id IS NULL)
     to each user and re-key all references. Safe to run multiple times.
     """
-    import uuid as _uuid
-    import logging as _logging
-    log = _logging.getLogger(__name__)
     try:
         async with engine.begin() as conn:
             global_exs = (await conn.execute(text(
@@ -90,7 +91,7 @@ async def migrate_exercise_ownership() -> None:
                     if existing:
                         new_id = existing[0]
                     else:
-                        new_id = str(_uuid.uuid4())
+                        new_id = str(uuid.uuid4())
                         await conn.execute(text(
                             "INSERT INTO exercises (id, user_id, name, muscle_group, category, description, created_at) "
                             "VALUES (:id, :uid, :name, :mg, :cat, :desc, :created)"

@@ -4,6 +4,66 @@ All notable changes to this project are documented here.
 
 ---
 
+## [Unreleased] — 2026-04-05
+
+### Added
+
+#### Exercise dialogs — muscle group & category filters
+- Add Exercise and Replace Exercise bottom sheets now include **Muscle Group** and **Category** dropdown filters (Select components), making it easy to narrow a large exercise list on mobile
+- Filters are independent per dialog; resetting one dialog does not affect the other
+
+#### Mobile-first exercise dialogs — BottomSheet
+- Both Add Exercise and Replace Exercise dialogs redesigned as `BottomSheet` components: slide up from the bottom of the screen, drag handle, title bar with close button, `max-h-[88dvh]` constraint
+- New shared component `frontend/src/components/ui/bottom-sheet.tsx` built on the `@base-ui/react` Dialog primitive with `slide-in-from-bottom` / `slide-out-to-bottom` animations
+
+#### Per-user exercise isolation
+- Exercises are now scoped to individual users via a `user_id` FK on the `Exercise` model
+- All exercise API endpoints require authentication and return only the requesting user's exercises
+- `program_seed.py` creates exercises with the user's `user_id` so seeded exercises are immediately per-user
+- Backend migration (`migrate_exercise_ownership`) runs as a background task on startup: copies existing global exercises to each user and re-keys all foreign references (`session_exercises`, `plan_exercises`, `suggestion_logs`, `volume_history`), then removes the now-orphaned global rows
+
+### Changed
+
+#### Date formatting
+- Exercise history entries now show the year: `MMM d` → `MMM d, yyyy` (e.g. "Apr 4, 2024")
+- Session scheduled date now shows the full weekday and year: `EEEE, MMMM d, yyyy` (e.g. "Saturday, April 4, 2026")
+
+#### Code cleanup
+- Unified duplicate `muscleGroups` / `categories` useMemos (previously one copy each for Add and Replace dialogs) into single shared memos
+- Extracted `filterExercises(excludeId, search, muscle, category)` helper used by both dialog lists
+- Removed unused `@utility no-scrollbar` block from `globals.css` (replaced by Select dropdowns)
+- Moved `import uuid` / `import logging` and module-level `log` to the top of `database.py`
+
+### Fixed
+
+#### Login hanging after exercise isolation changes
+- The exercise ownership migration was running synchronously inside `init_db()`, which blocked the FastAPI lifespan from yielding — no requests (including login) were served until the migration completed
+- Fixed by moving the migration to `asyncio.create_task()` so startup completes immediately and the migration runs in the background
+
+#### React hydration mismatch on login page
+- LastPass browser extension injects a `<div data-lastpass-icon-root="">` node into the form before React hydrates, causing a mismatch error in the console
+- Fixed with `suppressHydrationWarning` on the `<form>` element
+
+#### Cancelled session shows no Edit button
+- The Edit button was incorrectly shown for cancelled sessions because `isCompleted` was `true` for both `completed` and `cancelled` status
+- Fixed: Edit button is now only rendered when `session.status === 'completed'`
+
+### Tests
+
+#### Frontend — session detail page (all 107 passing)
+- Extracted `SessionDetailInner({ id: string })` as a named export from `page.tsx`; the default export is now a thin wrapper that calls `use(params)` and renders `<SessionDetailInner>`
+- Tests import and render `SessionDetailInner` directly, bypassing the `use(params)` Suspense suspension that caused all tests to render only the fallback under Jest fake timers
+- Updated selectors: `0/2` (no spaces), `Add Set` (Plus is an SVG icon, not a `+` character), `getAllByText` for volume (both session header and exercise card show the same value), `aria-label="Back"` on the back button, `title="Remove exercise"` on the exercise X button
+- Added `aria-label="Back"` and `title="Remove exercise"` to the respective elements in `page.tsx`
+
+#### Backend — exercises (all 112 passing)
+- `test_list_exercises_empty` → renamed `test_list_exercises_requires_auth`; exercises now require auth so the unauthenticated request returns 401
+- `test_list_exercises_returns_all` → uses delta-based assertion (`before + 3`) to account for exercises seeded on registration
+- `test_list_exercises_filter_by_muscle_group` → same delta approach; verifies all returned exercises match the filtered muscle group
+- `test_get_exercise_not_found` → switched from `client` to `auth_client` since the endpoint now requires auth
+
+---
+
 ## [Unreleased] — 2026-04-04
 
 ### Fixed
