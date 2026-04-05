@@ -11,6 +11,7 @@ import { BottomSheet, BottomSheetTrigger, BottomSheetContent } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { computeGhostMap } from '@/lib/ghost-map';
+import { PREF_REST_TIMER } from '@/app/settings/page';
 import type {
   TrainingSession,
   Exercise,
@@ -581,6 +582,13 @@ export function SessionDetailInner({ id }: { id: string }) {
   // Per-set edit state
   const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
 
+  // Default rest duration from user preference (falls back to 90s)
+  const defaultRestSecs = useMemo(() => {
+    if (typeof window === 'undefined') return 90;
+    const stored = localStorage.getItem(PREF_REST_TIMER);
+    return stored ? parseInt(stored, 10) : 90;
+  }, []);
+
   // Per-exercise rest config: { enabled, duration }
   // Keyed by session_exercise id
   const [restConfig, setRestConfig] = useState<Record<string, { enabled: boolean; duration: number }>>({});
@@ -701,7 +709,7 @@ export function SessionDetailInner({ id }: { id: string }) {
       const next = { ...prev };
       for (const se of session.exercises) {
         if (!next[se.id]) {
-          next[se.id] = { enabled: true, duration: se.rest_seconds ?? 90 };
+          next[se.id] = { enabled: true, duration: se.rest_seconds ?? defaultRestSecs };
         }
       }
       return next;
@@ -775,12 +783,30 @@ export function SessionDetailInner({ id }: { id: string }) {
 
   // Fetch weight suggestions for all exercises
   const { data: suggestionsData } = useQuery({
-    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(',')],
+    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(','), session?.meso_cycle_id],
     queryFn: async () => {
       const results = await Promise.allSettled(
         exerciseIds.map(exId =>
-          api.get('/api/suggestions/weight', { params: { exercise_id: exId } })
-            .then(r => ({ exId, data: r.data as { suggested_weight: number; adjustment_reason: string; previous_weight: number } }))
+          api.get('/api/suggestions/weight', {
+            params: {
+              exercise_id: exId,
+              ...(session?.meso_cycle_id ? { meso_cycle_id: session.meso_cycle_id } : {}),
+            },
+          }).then(r => ({
+            exId,
+            data: r.data as {
+              suggested_weight: number;
+              adjustment_reason: string;
+              previous_weight: number;
+              meso_week: number | null;
+              meso_phase: string;
+              meso_phase_label: string;
+              target_rpe: number;
+              session_volume: number;
+              suggested_sets: number;
+              volume_trend: string;
+            },
+          }))
         )
       );
       return results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
@@ -790,7 +816,17 @@ export function SessionDetailInner({ id }: { id: string }) {
   });
 
   const suggestionsMap = useMemo(() => {
-    const map: Record<string, { suggested_weight: number; adjustment_reason: string }> = {};
+    const map: Record<string, {
+      suggested_weight: number;
+      adjustment_reason: string;
+      meso_week: number | null;
+      meso_phase: string;
+      meso_phase_label: string;
+      target_rpe: number;
+      session_volume: number;
+      suggested_sets: number;
+      volume_trend: string;
+    }> = {};
     for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
     return map;
   }, [suggestionsData]);
@@ -1331,7 +1367,7 @@ export function SessionDetailInner({ id }: { id: string }) {
             const totalCount = se.sets.length;
             const exVol = se.sets.filter(s => s.is_completed).reduce((t, s) => t + s.reps * s.weight, 0);
             const firstPendingId = se.sets.find(s => !s.is_completed)?.id;
-            const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? 90 };
+            const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? defaultRestSecs };
             const suggestion = suggestionsMap[se.exercise_id];
 
             // Compute ghost placeholder text for pending sets.
@@ -1426,6 +1462,15 @@ export function SessionDetailInner({ id }: { id: string }) {
                     const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
                       (setEdits[s.id]?.weight ?? '') === String(suggestion.suggested_weight)
                     );
+                    // Show only the actionable last segment of the pipe-separated reason
+                    const reasonParts = suggestion.adjustment_reason?.split(' | ') ?? [];
+                    const shortReason = reasonParts[reasonParts.length - 1] ?? '';
+                    // Phase context: e.g. "Wk 2 accumulation" or "DELOAD"
+                    const phaseTag = suggestion.meso_phase === 'deload'
+                      ? 'DELOAD'
+                      : suggestion.meso_week
+                        ? `Wk ${suggestion.meso_week} · RPE ${suggestion.target_rpe}`
+                        : null;
                     return (
                       <button
                         onClick={e => {
@@ -1453,7 +1498,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         disabled={!isEditing}
                       >
                         <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : 'text-amber-500')} />
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground min-w-0 flex-1 truncate">
                           {isApplied ? (
                             <>
                               <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
@@ -1462,8 +1507,14 @@ export function SessionDetailInner({ id }: { id: string }) {
                           ) : (
                             <>
                               <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{suggestion.suggested_weight} lbs</span>
-                              {suggestion.adjustment_reason && (
-                                <span className="text-muted-foreground/60"> · {suggestion.adjustment_reason}</span>
+                              {phaseTag && (
+                                <span className={cn(
+                                  'ml-1.5 text-muted-foreground/50',
+                                  suggestion.meso_phase === 'deload' && 'text-blue-500/70 font-medium',
+                                )}>{phaseTag}</span>
+                              )}
+                              {shortReason && (
+                                <span className="text-muted-foreground/60"> · {shortReason}</span>
                               )}
                             </>
                           )}

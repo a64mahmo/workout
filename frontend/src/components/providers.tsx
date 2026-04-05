@@ -9,7 +9,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem themes={['light', 'dark', 'oled', 'midnight', 'cobalt', 'forest', 'violet', 'rose', 'system']}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           {children}

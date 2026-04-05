@@ -3,18 +3,112 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import date as date_type
+from collections import OrderedDict
 from ..database import async_session
-from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog
+from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog, MesoCycle
 from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
+
+# ── RP meso phase configuration ────────────────────────────────────────────────
+# Default 4-week arc: Week 1 light (RPE 7) → Week 4 peak (RPE 10) → Deload
+# Scales to longer mesos using fractional week position.
+
+_MESO_ARC = [
+    # (min_week, max_week_fraction, phase, target_rpe, volume_directive)
+    # Accessed via get_phase_config(week, total_weeks)
+]
+
+def _get_phase_config(week: int, total_weeks: int, just_hit_peak: bool) -> dict:
+    """
+    Returns RP phase config based on meso week position.
+    Arc: accumulation (W1) → intensification (W2-3) → peak (W4) → deload
+    Scales to any meso length by using fractional position.
+    """
+    if just_hit_peak:
+        return {
+            "phase": "deload",
+            "label": "Deload - Reset & recover",
+            "target_rpe": 5.5,
+            "weight_modifier": 0.65,
+            "volume_directive": "Drop to ~50% of peak volume and ~65% of peak weight",
+        }
+
+    # Fractional position in meso: 0.0 = start, 1.0 = end
+    position = (week - 1) / max(total_weeks - 1, 1)
+
+    if week > total_weeks:
+        return {
+            "phase": "deload",
+            "label": f"Deload (past week {total_weeks})",
+            "target_rpe": 5.5,
+            "weight_modifier": 0.65,
+            "volume_directive": "Drop to ~50% of peak volume and ~65% of peak weight",
+        }
+    elif position < 0.15:
+        return {
+            "phase": "accumulation",
+            "label": f"Week {week} - Light start (form & feel)",
+            "target_rpe": 7.0,
+            "weight_modifier": None,
+            "volume_directive": "Start at MEV (~3-4 working sets), prioritise technique",
+        }
+    elif position < 0.55:
+        # Scale target RPE from 7.5 → 8.5 through accumulation
+        target = round(7.5 + (position - 0.15) / 0.40 * 1.0, 1)
+        return {
+            "phase": "accumulation",
+            "label": f"Week {week} - Accumulate volume",
+            "target_rpe": target,
+            "weight_modifier": None,
+            "volume_directive": "Add 1 set if recovery allows (low soreness/fatigue)",
+        }
+    elif position < 0.85:
+        target = round(8.5 + (position - 0.55) / 0.30 * 0.5, 1)
+        return {
+            "phase": "intensification",
+            "label": f"Week {week} - Intensify",
+            "target_rpe": target,
+            "weight_modifier": None,
+            "volume_directive": "Approach MRV, maintain or cut 1 set if very sore",
+        }
+    else:
+        return {
+            "phase": "peak",
+            "label": f"Week {week} - Peak effort",
+            "target_rpe": 9.5,
+            "weight_modifier": None,
+            "volume_directive": "Final push - hold volume, max intensity, deload follows",
+        }
+
+
+def _session_stats(sets: list) -> dict:
+    """Compute per-session stats from a list of set rows."""
+    valid = [r for r in sets if r.weight and r.reps]
+    volume = sum(float(r.weight) * int(r.reps) for r in valid)
+    set_count = len(valid)
+    top = max(valid, key=lambda r: float(r.weight)) if valid else None
+    rpes = [float(r.rpe) for r in sets if r.rpe is not None]
+    avg_rpe = round(sum(rpes) / len(rpes), 1) if rpes else None
+    max_rpe = max(rpes) if rpes else None
+    return {
+        "volume": volume,
+        "set_count": set_count,
+        "top_weight": float(top.weight) if top else 0.0,
+        "top_reps": int(top.reps) if top and top.reps else None,
+        "avg_rpe": avg_rpe,
+        "max_rpe": max_rpe,
+        "date": sets[0].scheduled_date,
+        "meso_cycle_id": sets[0].meso_cycle_id,
+    }
 
 
 @router.get("/exercises")
 async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
     """
     Return exercises the user has trained, ranked by total all-time volume.
-    Computed directly from ExerciseSet so it works even without VolumeHistory.
+    Computed directly from ExerciseSet.
     """
     async with async_session() as session:
         result = await session.execute(
@@ -45,11 +139,11 @@ async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
         for ex in exercises:
             volume = float(ex.volume)
             if volume > 50000:
-                suggestion_reason = "High volume — maintain intensity"
+                suggestion_reason = "High volume - maintain intensity"
             elif volume >= 10000:
-                suggestion_reason = "Moderate volume — consider progression"
+                suggestion_reason = "Moderate volume - consider progression"
             else:
-                suggestion_reason = "Lower volume — good candidate for more work"
+                suggestion_reason = "Lower volume - good candidate for more work"
 
             suggestions.append({
                 "exercise": {
@@ -74,22 +168,27 @@ async def suggest_weight(
     meso_cycle_id: str = Query(None),
 ):
     """
-    RP-style weight suggestion:
-    - Reference point: top set (max weight) of the most recent completed session for this exercise,
-      within the same meso cycle if provided (avoids data pollution from different programs).
-    - Progression: compares last session's top set against the prior session's top set to detect
-      whether the lifter is improving, stalling, or regressing.
-    - RPE awareness: uses average RPE of last session's working sets. Thresholds are calibrated
-      for hypertrophy (RPE 7-8 = normal, RPE 9+ = high, RPE 10 = max effort / consider deload).
-    - Rep-aware: reports reps at the top set and adjusts suggestion messaging accordingly.
-    - Meso-aware: restricts history to the current meso cycle when provided.
+    RP-style hypertrophy suggestion engine.
+
+    Progression arc (default 4-week meso):
+      Week 1  - Light start, RPE ~7  (3 RIR) - build base volume
+      Week 2  - Accumulate,  RPE ~7.5 (2.5 RIR) - add sets
+      Week 3  - Intensify,   RPE ~8.5 (1.5 RIR) - add weight
+      Week 4  - Peak,        RPE ~9.5 (0.5 RIR) - push to limit
+      Deload  - ~65% weight, ~50% volume - recover and reset
+
+    Volume autoregulation (RP feedback proxy via RPE):
+      Last RPE < 7.0  → add 2 sets next week (too easy)
+      Last RPE 7–7.5  → add 1 set next week
+      Last RPE 7.5–9  → maintain or +1 set in accumulation
+      Last RPE ≥ 9    → hold or cut 1 set (approaching MRV)
+
+    Weight adjustment: 1 RPE unit ≈ 2.5% of working weight.
+    Deload triggered when max_rpe ≥ 9.5 OR meso week exceeds total meso weeks.
     """
     async with async_session() as session:
-        # Build base query — fetch all working sets for this exercise, most recent sessions first.
-        # Restrict to current meso cycle if provided to avoid data pollution.
         base = (
             select(
-                ExerciseSet.set_number,
                 ExerciseSet.weight,
                 ExerciseSet.reps,
                 ExerciseSet.rpe,
@@ -111,7 +210,7 @@ async def suggest_weight(
         if meso_cycle_id:
             base = base.where(TrainingSession.meso_cycle_id == meso_cycle_id)
 
-        result = await session.execute(base.limit(200))
+        result = await session.execute(base.limit(300))
         rows = result.all()
 
         if not rows:
@@ -119,11 +218,23 @@ async def suggest_weight(
                 "previous_weight": 0,
                 "suggested_weight": 0,
                 "average_rpe": None,
-                "adjustment_reason": "No history — start light and build up",
+                "adjustment_reason": "No history - start light (RPE 6-7) and build up",
+                "meso_week": 1,
+                "meso_phase": "accumulation",
+                "target_rpe": 7.0,
+                "session_volume": 0,
+                "set_count": 0,
+                "previous_volume": None,
+                "volume_trend": "none",
+                "suggested_sets": 3,
+                "volume_directive": "Start at MEV (~3-4 working sets), prioritise technique",
+                # legacy
+                "average_weight": 0,
+                "suggestion": "No history - start light and build up",
+                "percentage": 100,
             }
 
-        # Group sets by session_id, preserving recency order
-        from collections import defaultdict, OrderedDict
+        # Group sets by session (OrderedDict preserves recency order)
         sessions_map: dict = OrderedDict()
         for row in rows:
             sid = row.session_id
@@ -131,82 +242,169 @@ async def suggest_weight(
                 sessions_map[sid] = []
             sessions_map[sid].append(row)
 
-        session_ids = list(sessions_map.keys())  # most recent first
+        session_ids = list(sessions_map.keys())
+        last_stats = _session_stats(sessions_map[session_ids[0]])
+        prev_stats = _session_stats(sessions_map[session_ids[1]]) if len(session_ids) > 1 else None
 
-        def top_set(sets):
-            """Heaviest working set in a session."""
-            return max(sets, key=lambda r: float(r.weight))
+        last_weight = last_stats["top_weight"]
+        avg_rpe = last_stats["avg_rpe"]
+        max_rpe = last_stats["max_rpe"]
+        vol_last = last_stats["volume"]
+        set_count = last_stats["set_count"]
 
-        last_sets = sessions_map[session_ids[0]]
-        last_top = top_set(last_sets)
-        last_weight = float(last_top.weight)
-        last_reps = int(last_top.reps) if last_top.reps else None
+        # ── Meso week detection ───────────────────────────────────────────────
+        meso_week = None
+        meso_total_weeks = 4  # default 4-week meso
 
-        # Average RPE of last session's working sets (ignore missing RPE)
-        last_rpes = [float(r.rpe) for r in last_sets if r.rpe is not None]
-        avg_rpe = round(sum(last_rpes) / len(last_rpes), 1) if last_rpes else None
+        if meso_cycle_id and last_stats["date"]:
+            meso_result = await session.execute(
+                select(MesoCycle).where(MesoCycle.id == meso_cycle_id)
+            )
+            meso_obj = meso_result.scalar_one_or_none()
+            if meso_obj and meso_obj.start_date:
+                try:
+                    meso_start = date_type.fromisoformat(meso_obj.start_date)
+                    last_d = date_type.fromisoformat(last_stats["date"])
+                    meso_week = max(1, (last_d - meso_start).days // 7 + 1)
+                    if meso_obj.end_date:
+                        end_d = date_type.fromisoformat(meso_obj.end_date)
+                        meso_total_weeks = max(4, (end_d - meso_start).days // 7)
+                except (ValueError, TypeError):
+                    pass
 
-        # Previous session top set (for progression detection)
-        prev_weight = None
-        if len(session_ids) > 1:
-            prev_sets = sessions_map[session_ids[1]]
-            prev_weight = float(top_set(prev_sets).weight)
+        # Fallback: count distinct calendar weeks with sessions (recent 8 weeks)
+        if meso_week is None:
+            from datetime import timedelta
+            today = date_type.today()
+            cutoff = today - timedelta(weeks=8)
+            distinct_weeks: set = set()
+            for sets in sessions_map.values():
+                d_str = sets[0].scheduled_date
+                if d_str:
+                    try:
+                        d = date_type.fromisoformat(d_str)
+                        if d >= cutoff:
+                            distinct_weeks.add((d - cutoff).days // 7)
+                    except (ValueError, TypeError):
+                        pass
+            meso_week = max(1, len(distinct_weeks)) if distinct_weeks else 1
 
-        # ── Suggestion logic ─────────────────────────────────────────────────
-        # RPE thresholds calibrated for hypertrophy:
-        #   < 7  (>3 RIR) — too easy, push harder next session
-        #   7–8  (2-3 RIR) — optimal hypertrophy range, progress normally
-        #   8–9  (1-2 RIR) — high effort, small increment or hold
-        #   9–10 (0-1 RIR) — very high, hold weight and focus on reps/form
-        #   10   (0 RIR)  — consider a small deload next session
+        # ── Phase configuration ───────────────────────────────────────────────
+        just_hit_peak = max_rpe is not None and max_rpe >= 9.5
+        phase_cfg = _get_phase_config(meso_week, meso_total_weeks, just_hit_peak)
+        phase = phase_cfg["phase"]
+        target_rpe = phase_cfg["target_rpe"]
+        volume_directive = phase_cfg["volume_directive"]
 
-        if avg_rpe is None:
-            # No RPE data: fall back to simple session-over-session progression
-            if prev_weight and last_weight > prev_weight:
-                suggested = last_weight + 2.5
-                reason = f"Beat last session ({prev_weight} → {last_weight} lbs) — keep progressing"
-            elif prev_weight and last_weight == prev_weight:
-                suggested = last_weight + 2.5
-                reason = f"Matched last session at {last_weight} lbs — try adding 2.5 lbs"
-            else:
-                suggested = last_weight
-                reason = f"Top set: {last_weight} lbs — no RPE logged, hold and track effort"
-        elif avg_rpe >= 9.5:
-            # Near/at failure — small deload to recover, don't hammer RPE 10 every session
-            suggested = round(last_weight * 0.95, 1)
-            reason = f"RPE {avg_rpe} — very high effort, back off ~5% to recover quality reps"
-        elif avg_rpe >= 9.0:
-            # Hard but manageable — hold weight, aim for more reps
-            suggested = last_weight
-            reason = f"RPE {avg_rpe} — hold at {last_weight} lbs and aim for {(last_reps or 0) + 1}+ reps"
-        elif avg_rpe >= 8.0:
-            # Normal late-meso intensity — small increment
+        # ── Weight suggestion ─────────────────────────────────────────────────
+        if phase == "deload":
+            modifier = phase_cfg["weight_modifier"] or 0.65
+            suggested = last_weight * modifier
+            parts = [f"DELOAD"]
+            if just_hit_peak:
+                parts.append(f"peak RPE {max_rpe} reached")
+            parts.append(f"reset to {round(suggested, 1)} lbs ({int(modifier*100)}% of {last_weight} lbs)")
+            parts.append(f"target RPE {target_rpe}")
+
+        elif avg_rpe is None:
+            # No RPE logged - simple 2.5 lb progression
             suggested = last_weight + 2.5
-            reason = f"RPE {avg_rpe} — solid effort, add 2.5 lbs"
-        elif avg_rpe >= 7.0:
-            # Optimal range — standard progression
-            suggested = last_weight + 2.5
-            reason = f"RPE {avg_rpe} — in the zone, progress +2.5 lbs"
+            parts = [
+                f"Week {meso_week} {phase}",
+                f"target RPE {target_rpe}",
+                "no RPE logged - add 2.5 lbs and track effort next session",
+            ]
+
         else:
-            # Too easy — bigger jump
-            suggested = last_weight + 5.0
-            reason = f"RPE {avg_rpe} — felt easy, push harder (+5 lbs)"
+            # RPE-delta weight adjustment: 1 RPE unit ≈ 2.5% of working weight
+            rpe_delta = target_rpe - avg_rpe
+            pct_change = max(-0.15, min(0.10, rpe_delta * 0.025))
+            suggested = last_weight * (1 + pct_change)
+            # Round to 2.5 first so delta_lbs reflects what we'll actually suggest
+            suggested = round(round(suggested / 2.5) * 2.5, 1)
+            delta_lbs = round(suggested - last_weight, 1)
 
-        # Round to nearest 2.5 for practical plate loading
-        suggested = round(round(suggested / 2.5) * 2.5, 1)
+            if abs(rpe_delta) <= 0.4 or delta_lbs == 0:
+                parts = [
+                    f"Week {meso_week} {phase}",
+                    f"RPE {avg_rpe} ≈ target {target_rpe}",
+                    "maintain weight, focus on reps and execution",
+                ]
+            elif delta_lbs > 0:
+                parts = [
+                    f"Week {meso_week} {phase}",
+                    f"RPE {avg_rpe} → target {target_rpe}",
+                    f"add {delta_lbs} lbs (+{round(abs(pct_change)*100, 1)}%)",
+                ]
+            else:
+                parts = [
+                    f"Week {meso_week} {phase}",
+                    f"RPE {avg_rpe} → target {target_rpe}",
+                    f"reduce {abs(delta_lbs)} lbs ({round(abs(pct_change)*100, 1)}%)",
+                ]
+
+        # For non-RPE branches, round to nearest 2.5 here
+        if phase != "deload" and avg_rpe is not None:
+            pass  # already rounded above
+        else:
+            suggested = round(round(suggested / 2.5) * 2.5, 1)
+        reason = " | ".join(parts)
+
+        # ── Volume autoregulation (RP feedback via RPE proxy) ─────────────────
+        # RP rules: 1s (easy) → +2-3 sets, 2s → +1 set, 3s → hold, 4s → deload
+        # Proxy: RPE < 7 ≈ easy (1s), 7-7.5 ≈ moderate (2s), 7.5-9 ≈ solid (3s), 9+ ≈ hard (4s)
+        if phase == "deload":
+            suggested_sets = max(2, set_count // 2)
+        elif avg_rpe is None:
+            suggested_sets = set_count + 1  # no data, default to adding a set
+        elif avg_rpe < 7.0:
+            suggested_sets = set_count + 2   # very easy → add 2 sets
+        elif avg_rpe < 7.5:
+            suggested_sets = set_count + 1   # moderate → add 1 set
+        elif avg_rpe < 9.0:
+            # solid effort - add 1 in accumulation, hold in intensification/peak
+            suggested_sets = set_count + 1 if phase == "accumulation" else set_count
+        else:
+            # high RPE - hold or cut 1 set (approaching MRV)
+            suggested_sets = max(1, set_count - 1) if phase == "peak" else set_count
+
+        suggested_sets = min(suggested_sets, 12)  # cap at reasonable MRV
+
+        # ── Volume trend ──────────────────────────────────────────────────────
+        vol_prev = prev_stats["volume"] if prev_stats else None
+        if vol_prev is None:
+            volume_trend = "no prior data"
+        elif vol_last > vol_prev * 1.05:
+            volume_trend = "increasing"
+        elif vol_last < vol_prev * 0.95:
+            volume_trend = "decreasing"
+        else:
+            volume_trend = "stable"
 
         response = {
             "previous_weight": round(last_weight, 1),
             "suggested_weight": suggested,
             "average_rpe": avg_rpe,
             "adjustment_reason": reason,
-            # Legacy fields kept for API compatibility
+            # RP meso arc
+            "meso_week": meso_week,
+            "meso_phase": phase,
+            "meso_phase_label": phase_cfg["label"],
+            "target_rpe": target_rpe,
+            # Volume
+            "session_volume": round(vol_last, 1),
+            "set_count": set_count,
+            "previous_volume": round(vol_prev, 1) if vol_prev is not None else None,
+            "volume_trend": volume_trend,
+            # RP volume recommendation
+            "suggested_sets": suggested_sets,
+            "volume_directive": volume_directive,
+            # Legacy fields (API compatibility)
             "average_weight": round(last_weight, 1),
             "suggestion": reason,
             "percentage": round(suggested / last_weight * 100, 1) if last_weight else 100,
         }
 
-        # Log this suggestion for the user
         log = SuggestionLog(
             user_id=user_id,
             exercise_id=exercise_id,
@@ -302,9 +500,7 @@ async def record_suggestion_outcome(
 
 @router.get("/muscle-groups")
 async def volume_by_muscle_group(user_id: str = Depends(get_current_user_id)):
-    """
-    All-time volume per muscle group, computed directly from ExerciseSet.
-    """
+    """All-time volume per muscle group, computed directly from ExerciseSet."""
     async with async_session() as session:
         result = await session.execute(
             select(
