@@ -1456,7 +1456,13 @@ export function SessionDetailInner({ id }: { id: string }) {
                     </div>
                   </div>
 
-                  {/* AI suggestion strip — below exercise name (hidden if no history) */}
+                  {/* AI suggestion strip — weight + sets, or no-history note */}
+                  {!suggestion && (
+                    <div className="flex items-center gap-1.5 px-4 pb-2.5">
+                      <Sparkles className="size-3 shrink-0 text-muted-foreground/30" />
+                      <span className="text-xs text-muted-foreground/40">No history yet — log a set to get suggestions</span>
+                    </div>
+                  )}
                   {suggestion && suggestion.suggested_weight > 0 && (() => {
                     const pendingSets = se.sets.filter(s => !s.is_completed);
                     const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
@@ -1507,6 +1513,9 @@ export function SessionDetailInner({ id }: { id: string }) {
                           ) : (
                             <>
                               <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{suggestion.suggested_weight} lbs</span>
+                              {suggestion.suggested_sets > 0 && (
+                                <span className="ml-1.5 text-muted-foreground/60">· {suggestion.suggested_sets} sets</span>
+                              )}
                               {phaseTag && (
                                 <span className={cn(
                                   'ml-1.5 text-muted-foreground/50',
