@@ -77,18 +77,22 @@ async def seed_programs_for_user(user_id: str, db: AsyncSession) -> None:
     if result.scalar_one_or_none():
         return
 
-    # Ensure all exercises exist and build the name→id map
+    # Ensure all exercises exist for this user and build the name→id map
     exercise_map: dict[str, str] = {}
     for ex_data in _EXERCISES:
-        result = await db.execute(select(Exercise).where(Exercise.name == ex_data["name"]))
+        result = await db.execute(
+            select(Exercise).where(Exercise.name == ex_data["name"], Exercise.user_id == user_id)
+        )
         existing = result.scalar_one_or_none()
         if existing:
             exercise_map[ex_data["name"]] = existing.id
         else:
             new_ex = Exercise(
                 id=str(uuid.uuid4()),
+                user_id=user_id,
                 name=ex_data["name"],
                 muscle_group=ex_data["muscle_group"],
+                category=ex_data.get("category", "weighted"),
                 description=ex_data.get("description", ""),
             )
             db.add(new_ex)

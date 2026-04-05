@@ -29,12 +29,14 @@ class Exercise(Base):
     __tablename__ = "exercises"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String, nullable=False, index=True)
     muscle_group = Column(String, nullable=False, index=True)
     category = Column(String, nullable=False, default='weighted', server_default='weighted')
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User", foreign_keys=[user_id])
     session_exercises = relationship("SessionExercise", back_populates="exercise")
     volume_history = relationship("VolumeHistory", back_populates="exercise")
 

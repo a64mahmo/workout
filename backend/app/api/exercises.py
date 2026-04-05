@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -12,33 +12,44 @@ from ..deps import get_current_user_id
 router = APIRouter(prefix="/api/exercises", tags=["exercises"])
 
 @router.get("", response_model=List[ExerciseResponse])
-async def list_exercises(muscle_group: Optional[str] = None):
+async def list_exercises(
+    muscle_group: Optional[str] = None,
+    user_id: str = Depends(get_current_user_id),
+):
     async with async_session() as session:
-        query = select(Exercise)
+        query = select(Exercise).where(Exercise.user_id == user_id)
         if muscle_group:
             query = query.where(Exercise.muscle_group == muscle_group)
         result = await session.execute(query)
-        exercises = result.scalars().all()
-        return exercises
+        return result.scalars().all()
 
 @router.get("/{exercise_id}", response_model=ExerciseResponse)
-async def get_exercise(exercise_id: str):
+async def get_exercise(
+    exercise_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     async with async_session() as session:
-        result = await session.execute(select(Exercise).where(Exercise.id == exercise_id))
+        result = await session.execute(
+            select(Exercise).where(Exercise.id == exercise_id, Exercise.user_id == user_id)
+        )
         exercise = result.scalar_one_or_none()
         if not exercise:
             raise HTTPException(status_code=404, detail="Exercise not found")
         return exercise
 
 @router.post("", response_model=ExerciseResponse)
-async def create_exercise(exercise: ExerciseCreate, _: str = Depends(get_current_user_id)):
+async def create_exercise(
+    exercise: ExerciseCreate,
+    user_id: str = Depends(get_current_user_id),
+):
     async with async_session() as session:
         new_exercise = Exercise(
             id=str(uuid.uuid4()),
+            user_id=user_id,
             name=exercise.name,
             muscle_group=exercise.muscle_group,
             category=exercise.category,
-            description=exercise.description
+            description=exercise.description,
         )
         session.add(new_exercise)
         await session.commit()
@@ -46,13 +57,19 @@ async def create_exercise(exercise: ExerciseCreate, _: str = Depends(get_current
         return new_exercise
 
 @router.put("/{exercise_id}", response_model=ExerciseResponse)
-async def update_exercise(exercise_id: str, exercise: ExerciseUpdate):
+async def update_exercise(
+    exercise_id: str,
+    exercise: ExerciseUpdate,
+    user_id: str = Depends(get_current_user_id),
+):
     async with async_session() as session:
-        result = await session.execute(select(Exercise).where(Exercise.id == exercise_id))
+        result = await session.execute(
+            select(Exercise).where(Exercise.id == exercise_id, Exercise.user_id == user_id)
+        )
         db_exercise = result.scalar_one_or_none()
         if not db_exercise:
             raise HTTPException(status_code=404, detail="Exercise not found")
-        
+
         if exercise.name is not None:
             db_exercise.name = exercise.name
         if exercise.muscle_group is not None:
@@ -61,15 +78,20 @@ async def update_exercise(exercise_id: str, exercise: ExerciseUpdate):
             db_exercise.category = exercise.category
         if exercise.description is not None:
             db_exercise.description = exercise.description
-        
+
         await session.commit()
         await session.refresh(db_exercise)
         return db_exercise
 
 @router.delete("/{exercise_id}")
-async def delete_exercise(exercise_id: str):
+async def delete_exercise(
+    exercise_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
     async with async_session() as session:
-        result = await session.execute(select(Exercise).where(Exercise.id == exercise_id))
+        result = await session.execute(
+            select(Exercise).where(Exercise.id == exercise_id, Exercise.user_id == user_id)
+        )
         exercise = result.scalar_one_or_none()
         if not exercise:
             raise HTTPException(status_code=404, detail="Exercise not found")
@@ -81,7 +103,7 @@ async def delete_exercise(exercise_id: str):
 async def get_exercise_history(
     exercise_id: str,
     user_id: str = Depends(get_current_user_id),
-    limit: int = Query(10, ge=1, le=50)
+    limit: int = Query(10, ge=1, le=50),
 ):
     from app.models.models import SessionExercise as SES, ExerciseSet as ES
     async with async_session() as session:
@@ -95,7 +117,7 @@ async def get_exercise_history(
             .limit(limit)
         )
         sessions = result.scalars().all()
-        
+
         history = []
         for ts in sessions:
             for se in ts.session_exercises:
@@ -111,15 +133,15 @@ async def get_exercise_history(
                             "set_number": s.set_number,
                             "reps": s.reps or 0,
                             "weight": s.weight or 0,
-                            "rpe": s.rpe
+                            "rpe": s.rpe,
                         })
-                
+
                 history.append({
                     "session_id": ts.id,
                     "session_date": ts.scheduled_date,
                     "session_name": ts.name,
                     "sets": sets_data,
-                    "total_volume": total_volume
+                    "total_volume": total_volume,
                 })
-        
+
         return history

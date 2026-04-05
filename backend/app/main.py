@@ -10,7 +10,7 @@ from .api import (
     sessions_router, suggestions_router, plans_router,
     fitbit_router
 )
-from .database import init_db
+from .database import init_db, migrate_exercise_ownership
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(wait)
     else:
         logger.critical("Could not connect to database after 10 attempts. Starting anyway.")
+    # Run data migration in the background so it never delays request handling
+    asyncio.create_task(migrate_exercise_ownership())
     yield
 
 
