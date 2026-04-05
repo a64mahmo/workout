@@ -686,8 +686,12 @@ export function SessionDetailInner({ id }: { id: string }) {
 
   // Initialise edit + rest state for newly-loaded exercises/sets
   useEffect(() => {
-    if (!session || initializedSessionIdRef.current === session.id) {
-      return;
+    if (!session) return;
+
+    if (initializedSessionIdRef.current !== session.id) {
+      // Clear edits from previous session
+      setSetEdits({});
+      initializedSessionIdRef.current = session.id;
     }
 
     setSetEdits(prev => {
@@ -714,8 +718,6 @@ export function SessionDetailInner({ id }: { id: string }) {
       }
       return next;
     });
-
-    initializedSessionIdRef.current = session.id;
   }, [session]);
 
   const addedIds = new Set(session?.exercises.map(se => se.exercise_id) ?? []);
@@ -795,6 +797,7 @@ export function SessionDetailInner({ id }: { id: string }) {
           }).then(r => ({
             exId,
             data: r.data as {
+              log_id: string;
               suggested_weight: number;
               adjustment_reason: string;
               previous_weight: number;
@@ -817,6 +820,7 @@ export function SessionDetailInner({ id }: { id: string }) {
 
   const suggestionsMap = useMemo(() => {
     const map: Record<string, {
+      log_id: string;
       suggested_weight: number;
       adjustment_reason: string;
       meso_week: number | null;
@@ -908,6 +912,16 @@ export function SessionDetailInner({ id }: { id: string }) {
     },
   });
 
+  const recordOutcomeMutation = useMutation({
+    mutationFn: async (data: { logId: string; reps: number; weight: number; rpe?: number }) => {
+      await api.patch(`/api/suggestions/weight/history/${data.logId}`, {
+        actual_reps: data.reps,
+        actual_weight: data.weight,
+        actual_rpe: data.rpe ?? null,
+      });
+    },
+  });
+
   const completeSetMutation = useMutation({
     mutationFn: async (data: { setId: string; seId: string; reps: number; weight: number; rpe?: number }) => {
       const res = await api.put(`/api/sessions/exercise-sets/${data.setId}`, {
@@ -925,6 +939,20 @@ export function SessionDetailInner({ id }: { id: string }) {
       setTimeout(() => setJustCompletedSetId(null), 700);
       const cfg = restConfig[vars.seId] ?? { enabled: true, duration: 90 };
       if (cfg.enabled) startRest(cfg.duration, vars.seId);
+
+      // Record outcome if a suggestion exists for this exercise
+      const se = session?.exercises.find(e => e.id === vars.seId);
+      if (se) {
+        const suggestion = suggestionsMap[se.exercise_id];
+        if (suggestion?.log_id) {
+          recordOutcomeMutation.mutate({
+            logId: suggestion.log_id,
+            reps: vars.reps,
+            weight: vars.weight,
+            rpe: vars.rpe,
+          });
+        }
+      }
     },
   });
 
@@ -1239,7 +1267,7 @@ export function SessionDetailInner({ id }: { id: string }) {
         style={{ opacity: titleOpacity, transform: `translateY(${(1 - titleOpacity) * -8}px)`, transition: 'none' }}
         className="px-1 pt-1"
       >
-        <h1 className="font-bold text-2xl leading-tight">{session.name}</h1>
+        <h1 className="font-bold text-2xl leading-tight break-words">{session.name}</h1>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-sm text-muted-foreground">{dateStr}</span>
           {totalVolume > 0 && (
@@ -1425,7 +1453,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                       <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
                         {se.exercise.muscle_group}
                       </span>
-                      <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
+                      <span className="font-semibold text-sm break-words">{se.exercise.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {totalCount > 0 && (
@@ -1468,78 +1496,101 @@ export function SessionDetailInner({ id }: { id: string }) {
                     const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
                       (setEdits[s.id]?.weight ?? '') === String(suggestion.suggested_weight)
                     );
+                    const currentSets = se.sets.length;
+                    const needsMoreSets = suggestion.suggested_sets > currentSets;
+
                     // Show only the actionable last segment of the pipe-separated reason
                     const reasonParts = suggestion.adjustment_reason?.split(' | ') ?? [];
                     const shortReason = reasonParts[reasonParts.length - 1] ?? '';
-                    // Phase context: e.g. "Wk 2 accumulation" or "DELOAD"
-                    const phaseTag = suggestion.meso_phase === 'deload'
-                      ? 'DELOAD'
-                      : suggestion.meso_week
-                        ? `Wk ${suggestion.meso_week} · RPE ${suggestion.target_rpe}`
-                        : null;
+                    
+                    const isDeload = suggestion.meso_phase === 'deload';
+
                     return (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          if (!isEditing) return;
-                          if (isApplied) {
-                            setSetEdits(prev => {
-                              const next = { ...prev };
-                              for (const s of se.sets) {
-                                if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: '' };
-                              }
-                              return next;
-                            });
-                            flashSuggestion(se.id, 'undo');
-                          } else {
-                            applyWeightSuggestion(se.id, suggestion.suggested_weight);
-                            flashSuggestion(se.id, 'apply');
-                          }
-                        }}
+                      <div
                         className={cn(
-                          'w-full flex items-center gap-2 px-4 pb-2.5 text-left group',
+                          'px-4 pb-2.5 flex items-center justify-between gap-3',
                           suggestionFlash[se.id] === 'apply' && 'suggestion-apply-pop',
                           suggestionFlash[se.id] === 'undo' && 'suggestion-undo-shake',
                         )}
-                        disabled={!isEditing}
                       >
-                        <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : 'text-amber-500')} />
-                        <span className="text-xs text-muted-foreground min-w-0 flex-1 truncate">
-                          {isApplied ? (
-                            <>
-                              <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
-                              <span className="text-muted-foreground/60"> · {suggestion.suggested_weight} lbs</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{suggestion.suggested_weight} lbs</span>
-                              {suggestion.suggested_sets > 0 && (
-                                <span className="ml-1.5 text-muted-foreground/60">· {suggestion.suggested_sets} sets</span>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : isDeload ? 'text-blue-500' : 'text-amber-500')} />
+                          
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (!isEditing) return;
+                              if (isApplied) {
+                                setSetEdits(prev => {
+                                  const next = { ...prev };
+                                  for (const s of se.sets) {
+                                    if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: '' };
+                                  }
+                                  return next;
+                                });
+                                flashSuggestion(se.id, 'undo');
+                              } else {
+                                applyWeightSuggestion(se.id, suggestion.suggested_weight);
+                                flashSuggestion(se.id, 'apply');
+                              }
+                            }}
+                            className="flex items-center gap-1.5 min-w-0 text-left"
+                            disabled={!isEditing}
+                          >
+                            <span className="text-xs text-muted-foreground break-words">
+                              {isApplied ? (
+                                <>
+                                  <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
+                                  <span className="text-muted-foreground/60"> · {suggestion.suggested_weight} lbs</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className={cn(
+                                    'font-bold tabular-nums shrink-0',
+                                    isDeload ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'
+                                  )}>{suggestion.suggested_weight} lbs</span>
+                                  
+                                  <span className="ml-1.5 font-medium text-muted-foreground shrink-0">@ RPE {suggestion.target_rpe}</span>
+                                  
+                                  {isDeload ? (
+                                    <span className="ml-1.5 px-1 rounded bg-blue-100 dark:bg-blue-900/30 text-[10px] text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider shrink-0">Deload</span>
+                                  ) : (
+                                    <span className="ml-1.5 text-muted-foreground/50 shrink-0">· Wk {suggestion.meso_week}</span>
+                                  )}
+                                  
+                                  {shortReason && (
+                                    <span className="ml-1.5 text-muted-foreground/40 italic break-words">· {shortReason}</span>
+                                  )}
+                                </>
                               )}
-                              {phaseTag && (
-                                <span className={cn(
-                                  'ml-1.5 text-muted-foreground/50',
-                                  suggestion.meso_phase === 'deload' && 'text-blue-500/70 font-medium',
-                                )}>{phaseTag}</span>
-                              )}
-                              {shortReason && (
-                                <span className="text-muted-foreground/60"> · {shortReason}</span>
-                              )}
-                            </>
-                          )}
-                        </span>
-                        {isEditing && !isApplied && (
-                          <span className="ml-auto text-xs font-semibold text-amber-600 dark:text-amber-400 shrink-0 group-active:opacity-60">
-                            Apply →
-                          </span>
+                            </span>
+                            {!isApplied && isEditing && (
+                              <span className="text-[10px] font-bold text-amber-600/60 dark:text-amber-400/60 uppercase tracking-tighter">Apply</span>
+                            )}
+                          </button>
+                        </div>
+
+                        {isEditing && needsMoreSets && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] font-bold gap-1 bg-primary/5 text-primary hover:bg-primary/10 border border-primary/20"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const last = se.sets[se.sets.length - 1];
+                              addSetMutation.mutate({
+                                seId: se.id,
+                                setNumber: se.sets.length + 1,
+                                reps: last?.reps ?? 10,
+                                weight: last?.weight ?? 0,
+                              });
+                            }}
+                          >
+                            <Plus className="size-2.5" />
+                            {suggestion.suggested_sets} Sets
+                          </Button>
                         )}
-                        {isApplied && isEditing && (
-                          <span className="ml-auto flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 shrink-0">
-                            <CheckCircle2 className="size-3.5" />
-                            <span className="text-muted-foreground/50 font-normal">tap to undo</span>
-                          </span>
-                        )}
-                      </button>
+                      </div>
                     );
                   })()}
                 </div>

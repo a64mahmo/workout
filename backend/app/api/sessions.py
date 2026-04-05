@@ -13,7 +13,20 @@ from app.schemas import SessionExerciseCreate, SessionExerciseUpdate, SessionExe
 from app.schemas import ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse
 from app.deps import get_current_user_id
 
+from ..database import async_session, migrate_volume_history
+
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+@router.post("/sync-volume")
+async def sync_volume(user_id: str = Depends(get_current_user_id)):
+    """Manually trigger a volume history backfill for the current user."""
+    # In a real production app, we might want to scope this to just the current user
+    # but our migrate_volume_history function is safe to run globally as it's idempotent.
+    try:
+        await migrate_volume_history()
+        return {"message": "Volume history synchronization complete"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):

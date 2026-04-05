@@ -1,6 +1,7 @@
 import os
 import uuid
 import logging
+from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import event, text
@@ -41,27 +42,6 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    # Run each migration in its own transaction so a failure (column already
-    # exists) doesn't abort the rest — especially important for PostgreSQL.
-    migrations = [
-        "ALTER TABLE health_metrics ADD COLUMN steps INTEGER",
-        "ALTER TABLE health_metrics ADD COLUMN resting_hr INTEGER",
-        "ALTER TABLE health_metrics ADD COLUMN fitbit_synced_at TIMESTAMP",
-        "ALTER TABLE exercises ADD COLUMN category TEXT DEFAULT 'weighted'",
-        "ALTER TABLE plan_sessions ADD COLUMN week_number INTEGER DEFAULT 1",
-        "ALTER TABLE suggestion_logs ADD COLUMN actual_weight REAL",
-        "ALTER TABLE suggestion_logs ADD COLUMN actual_reps INTEGER",
-        "ALTER TABLE suggestion_logs ADD COLUMN actual_rpe REAL",
-        "ALTER TABLE training_sessions ADD COLUMN plan_session_id TEXT REFERENCES plan_sessions(id)",
-        "ALTER TABLE exercises ADD COLUMN user_id TEXT REFERENCES users(id)",
-    ]
-    for stmt in migrations:
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(stmt))
-        except Exception:
-            pass  # Column already exists
 
 
 async def migrate_exercise_ownership() -> None:
@@ -133,3 +113,70 @@ async def migrate_exercise_ownership() -> None:
             log.info("Exercise ownership migration complete.")
     except Exception as e:
         log.warning(f"Exercise ownership migration failed (will retry next restart): {e}")
+
+
+async def migrate_volume_history() -> None:
+    """
+    Backfill VolumeHistory for all completed sessions that are missing it.
+    Uses SQLAlchemy Core for cross-DB compatibility (SQLite/Postgres).
+    """
+    from .models.models import TrainingSession, VolumeHistory, SessionExercise, ExerciseSet
+    from sqlalchemy import select, insert, func
+
+    try:
+        async with async_session() as session:
+            # 1. Find completed sessions missing volume history
+            # Using a subquery for 'NOT IN' is safe and cross-compatible
+            subq = select(VolumeHistory.session_id).distinct()
+            stmt = (
+                select(TrainingSession.id, TrainingSession.user_id)
+                .where(TrainingSession.status == 'completed')
+                .where(TrainingSession.id.not_in(subq))
+            )
+            result = await session.execute(stmt)
+            sessions_to_migrate = result.all()
+
+            if not sessions_to_migrate:
+                return
+
+            log.info(f"Backfilling volume history for {len(sessions_to_migrate)} sessions...")
+
+            for sid, uid in sessions_to_migrate:
+                # 2. Calculate volume per exercise for this session
+                # SQLAlchemy handles the boolean comparison (is_completed=True) 
+                # correctly for both SQLite (1) and Postgres (TRUE).
+                vol_stmt = (
+                    select(
+                        SessionExercise.exercise_id,
+                        func.sum(ExerciseSet.reps * ExerciseSet.weight).label("volume")
+                    )
+                    .join(ExerciseSet, SessionExercise.id == ExerciseSet.session_exercise_id)
+                    .where(SessionExercise.session_id == sid)
+                    .where(ExerciseSet.is_completed == True)
+                    .where(ExerciseSet.is_warmup == False)
+                    .where(ExerciseSet.reps != None)
+                    .where(ExerciseSet.weight != None)
+                    .group_by(SessionExercise.exercise_id)
+                    .having(func.sum(ExerciseSet.reps * ExerciseSet.weight) > 0)
+                )
+                vol_result = await session.execute(vol_stmt)
+                exercise_volumes = vol_result.all()
+
+                for eid, vol in exercise_volumes:
+                    # 3. Insert the summary record
+                    await session.execute(
+                        insert(VolumeHistory).values(
+                            id=str(uuid.uuid4()),
+                            user_id=uid,
+                            exercise_id=eid,
+                            session_id=sid,
+                            total_volume=float(vol),
+                            calculated_at=datetime.utcnow()
+                        )
+                    )
+            
+            await session.commit()
+            log.info("Volume history backfill complete.")
+    except Exception as e:
+        log.warning(f"Volume history backfill failed: {e}")
+        # rollback is handled by the async_session context manager on error

@@ -10,7 +10,7 @@ import { api } from '@/lib/api';
 import type { User } from '@/types';
 import {
   Activity, Link2, Link2Off, Heart, Moon, Weight, Loader2,
-  User as UserIcon, Check,
+  User as UserIcon, Check, TrendingUp, RefreshCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -131,6 +131,12 @@ export default function SettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
+    },
+  });
+
+  const syncVolumeMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/api/sessions/sync-volume');
     },
   });
 
@@ -391,6 +397,42 @@ export default function SettingsPage() {
           )}
         </div>
       </Card>
+
+      {/* ── Data Management ── */}
+      <Section
+        title="Data Management"
+        description="Sync history or reset local caches."
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4 p-3 rounded-xl border border-border bg-muted/30">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                <TrendingUp className="size-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Volume History</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Recalculate summary stats for all past sessions.
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => syncVolumeMutation.mutate()}
+              disabled={syncVolumeMutation.isPending}
+              className="gap-1.5 h-8 px-3 text-xs"
+            >
+              {syncVolumeMutation.isPending ? (
+                <RefreshCcw className="size-3 animate-spin" />
+              ) : (
+                <RefreshCcw className="size-3" />
+              )}
+              Sync
+            </Button>
+          </div>
+        </div>
+      </Section>
     </div>
   );
 }
