@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await asyncio.sleep(wait)
     else:
         logger.critical("Could not connect to database after 10 attempts. Starting anyway.")
+    
     yield
 
 

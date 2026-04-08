@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import {
-  TrendingUp, TrendingDown, Minus,
+  TrendingUp, TrendingDown,
   Dumbbell, Scale, Search, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import {
@@ -37,6 +37,18 @@ interface WeightSuggestion {
   suggestion: string;
   adjustment_reason: string;
   percentage: number;
+  // RP meso arc fields
+  meso_week: number | null;
+  meso_phase: 'accumulation' | 'intensification' | 'peak' | 'deload';
+  meso_phase_label: string;
+  target_rpe: number;
+  // Volume fields
+  session_volume: number;
+  set_count: number;
+  previous_volume: number | null;
+  volume_trend: 'increasing' | 'stable' | 'decreasing' | 'no prior data' | 'none';
+  suggested_sets: number;
+  volume_directive: string;
 }
 
 type Period = '8W' | '6M' | '1Y' | 'custom';
@@ -318,6 +330,8 @@ function useWeeklyVolumeByMuscle(sessions: TrainingSession[] | undefined) {
 
 export default function SuggestionsPage() {
   const [selectedExercise, setSelectedExercise] = useState('');
+  const [exerciseQuery, setExerciseQuery] = useState('');
+  const [showExerciseList, setShowExerciseList] = useState(false);
   const [search, setSearch] = useState('');
   const [muscleFilter, setMuscleFilter] = useState('all');
   const [showAll, setShowAll] = useState(false);
@@ -419,10 +433,14 @@ export default function SuggestionsPage() {
   // ── Weight suggestion metadata ─────────────────────────────────────────────
   const weightMeta = useMemo(() => {
     if (!weightSuggestion) return null;
-    const pct = weightSuggestion.percentage;
-    if (pct >= 100) return { icon: <TrendingUp className="size-4" />, color: '#22c55e', label: 'Progression' };
-    if (pct >= 80)  return { icon: <Minus className="size-4" />,      color: '#f97316', label: 'Recovery' };
-    return           { icon: <TrendingDown className="size-4" />,     color: '#f43f5e', label: 'Deload' };
+    const phase = weightSuggestion.meso_phase;
+    if (phase === 'deload')
+      return { icon: <TrendingDown className="size-4" />, color: '#3b82f6', label: 'Deload' };
+    if (phase === 'peak')
+      return { icon: <TrendingUp className="size-4" />, color: '#f43f5e', label: 'Peak' };
+    if (phase === 'intensification')
+      return { icon: <TrendingUp className="size-4" />, color: '#f97316', label: 'Intensify' };
+    return { icon: <TrendingUp className="size-4" />, color: '#22c55e', label: 'Accumulate' };
   }, [weightSuggestion]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -668,103 +686,201 @@ export default function SuggestionsPage() {
             Weight Recommendation
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Based on your last 50 completed sets for the exercise
+            RP-style progression — builds toward RPE 10 over the meso, then deloads
           </p>
         </div>
 
-        <Select
-          value={selectedExercise}
-          onValueChange={(v) => v && setSelectedExercise(v)}
-          items={exerciseSuggestions.map(s => ({ value: s.exercise.id, label: s.exercise.name }))}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Search an exercise…" />
-          </SelectTrigger>
-          <SelectContent>
-            {exerciseSuggestions.map((s, i) => (
-              <SelectItem
-                key={`${s.exercise.id}-${i}`}
-                value={s.exercise.id}
-                label={s.exercise.name}
+        {/* Inline exercise search */}
+        <div className="relative">
+          <div className="relative flex items-center">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search an exercise…"
+              value={exerciseQuery}
+              onChange={e => {
+                setExerciseQuery(e.target.value);
+                setShowExerciseList(true);
+              }}
+              onFocus={() => setShowExerciseList(true)}
+              onBlur={() => setTimeout(() => setShowExerciseList(false), 150)}
+              className="pl-9 pr-9 h-10 text-sm"
+            />
+            {selectedExercise && (
+              <button
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => {
+                  setSelectedExercise('');
+                  setExerciseQuery('');
+                  setShowExerciseList(false);
+                }}
               >
-                {s.exercise.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                ×
+              </button>
+            )}
+          </div>
+          {showExerciseList && (() => {
+            const q = exerciseQuery.toLowerCase();
+            const matches = exerciseSuggestions.filter(s =>
+              s.exercise.name.toLowerCase().includes(q)
+            );
+            if (matches.length === 0) return null;
+            return (
+              <ul className="absolute z-20 top-full mt-1 w-full rounded-lg border border-border bg-card shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+                {matches.map((s, i) => (
+                  <li key={`${s.exercise.id}-${i}`}>
+                    <button
+                      className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-muted/60 transition-colors"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setSelectedExercise(s.exercise.id);
+                        setExerciseQuery(s.exercise.name);
+                        setShowExerciseList(false);
+                      }}
+                    >
+                      <span className="text-sm font-medium truncate">{s.exercise.name}</span>
+                      {s.exercise.muscle_group && (
+                        <span className="text-[11px] text-muted-foreground ml-2 shrink-0 capitalize">
+                          {s.exercise.muscle_group}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </div>
 
         {loadingWeight && selectedExercise && (
           <div className="h-24 rounded-lg bg-muted animate-pulse" />
         )}
 
-        {weightSuggestion && weightMeta && (
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            {/* Pill */}
-            <div className="flex items-center gap-2">
-              <span
-                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
-                style={{
-                  background: `${weightMeta.color}20`,
-                  color: weightMeta.color,
-                }}
-              >
-                {weightMeta.icon}
-                {weightMeta.label}
-              </span>
-              {selectedName && (
-                <span className="text-sm text-muted-foreground">{selectedName}</span>
-              )}
-            </div>
+        {weightSuggestion && weightMeta && (() => {
+          const reasonParts = weightSuggestion.adjustment_reason?.split(' | ') ?? [];
+          const shortReason = reasonParts[reasonParts.length - 1] ?? '';
+          const volDelta = weightSuggestion.previous_volume && weightSuggestion.previous_volume > 0
+            ? Math.round(((weightSuggestion.session_volume - weightSuggestion.previous_volume) / weightSuggestion.previous_volume) * 100)
+            : null;
 
-            {/* Numbers */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">Previous avg</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {weightSuggestion.previous_weight}
-                  <span className="text-sm font-normal text-muted-foreground ml-1">lbs</span>
-                </p>
-              </div>
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">Suggested</p>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: weightMeta.color }}>
-                  {weightSuggestion.suggested_weight}
-                  <span className="text-sm font-normal text-muted-foreground ml-1">lbs</span>
-                </p>
-              </div>
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">Avg RPE</p>
-                <p className="text-2xl font-bold tabular-nums">
-                  {weightSuggestion.average_rpe ?? '—'}
-                  <span className="text-sm font-normal text-muted-foreground ml-1">
-                    {weightSuggestion.average_rpe ? '/ 10' : ''}
-                  </span>
-                </p>
-              </div>
-            </div>
+          return (
+            <div className="rounded-lg border border-border p-4 space-y-4">
 
-            {/* Progress bar showing % of previous */}
-            <div>
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>0</span>
-                <span className="font-medium" style={{ color: weightMeta.color }}>
-                  {weightSuggestion.percentage}% of average
+              {/* Phase pill + exercise name */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                  style={{ background: `${weightMeta.color}20`, color: weightMeta.color }}
+                >
+                  {weightMeta.icon}
+                  {weightMeta.label}
                 </span>
+                {selectedName && (
+                  <span className="text-sm text-muted-foreground">{selectedName}</span>
+                )}
               </div>
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(weightSuggestion.percentage, 110)}%`,
-                    background: weightMeta.color,
-                  }}
-                />
+
+              {/* Meso arc: W1 → W2 → W3 → W4 → D */}
+              {weightSuggestion.meso_week !== null && (
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wide">
+                    Meso arc
+                  </p>
+                  <div className="flex items-center gap-1">
+                    {(['W1','W2','W3','W4','D'] as const).map((label, idx) => {
+                      const weekNum = idx + 1;
+                      const isDeload = label === 'D';
+                      const isCurrent = isDeload
+                        ? weightSuggestion.meso_phase === 'deload'
+                        : weightSuggestion.meso_week === weekNum;
+                      return (
+                        <div key={label} className="flex items-center gap-1">
+                          <span
+                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full transition-colors"
+                            style={isCurrent
+                              ? { background: weightMeta.color, color: '#fff' }
+                              : { background: 'transparent', color: 'var(--muted-foreground)', border: '1px solid var(--border)' }
+                            }
+                          >
+                            {label}
+                          </span>
+                          {idx < 4 && <span className="text-muted-foreground/40 text-[10px]">›</span>}
+                        </div>
+                      );
+                    })}
+                    <span className="ml-2 text-xs text-muted-foreground truncate">
+                      {weightSuggestion.meso_phase_label}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Key numbers */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">Last top set</p>
+                  <p className="text-xl font-bold tabular-nums">
+                    {weightSuggestion.previous_weight}
+                    <span className="text-xs font-normal text-muted-foreground ml-1">lbs</span>
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">Suggested</p>
+                  <p className="text-xl font-bold tabular-nums" style={{ color: weightMeta.color }}>
+                    {weightSuggestion.suggested_weight}
+                    <span className="text-xs font-normal text-muted-foreground ml-1">lbs</span>
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">Last RPE</p>
+                  <p className="text-xl font-bold tabular-nums">
+                    {weightSuggestion.average_rpe ?? '—'}
+                    {weightSuggestion.average_rpe && (
+                      <span className="text-xs font-normal text-muted-foreground ml-1">/ 10</span>
+                    )}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">Target RPE</p>
+                  <p className="text-xl font-bold tabular-nums" style={{ color: weightMeta.color }}>
+                    {weightSuggestion.target_rpe}
+                  </p>
+                </div>
+              </div>
+
+              {/* Volume row */}
+              {weightSuggestion.session_volume > 0 && (
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground">Last session vol</span>
+                    <span className="font-semibold tabular-nums">{fmtVol(weightSuggestion.session_volume)} lbs</span>
+                    {volDelta !== null && (
+                      <span
+                        className="font-medium flex items-center gap-0.5"
+                        style={{ color: volDelta > 0 ? '#22c55e' : volDelta < 0 ? '#f43f5e' : '#9ca3af' }}
+                      >
+                        {volDelta > 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                        {volDelta > 0 ? '+' : ''}{volDelta}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span>{weightSuggestion.set_count} sets done</span>
+                    <span className="text-border">·</span>
+                    <span className="font-semibold text-foreground">{weightSuggestion.suggested_sets} sets next</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Divider + coaching notes */}
+              <div className="space-y-1.5 pt-0.5 border-t border-border">
+                <p className="text-sm font-medium">{shortReason}</p>
+                {weightSuggestion.volume_directive && (
+                  <p className="text-xs text-muted-foreground">{weightSuggestion.volume_directive}</p>
+                )}
               </div>
             </div>
-
-            <p className="text-sm text-muted-foreground">{weightSuggestion.adjustment_reason}</p>
-          </div>
-        )}
+          );
+        })()}
       </section>
 
       {/* ── Exercise volume table ── */}

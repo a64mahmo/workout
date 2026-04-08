@@ -6,9 +6,12 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { BottomSheet, BottomSheetTrigger, BottomSheetContent } from '@/components/ui/bottom-sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { computeGhostMap } from '@/lib/ghost-map';
+import { PREF_REST_TIMER } from '@/app/settings/page';
 import type {
   TrainingSession,
   Exercise,
@@ -309,7 +312,7 @@ function ExerciseHistoryPanel({ exerciseId, open, isBodyweight = false }: {
             <div key={i} className="rounded-lg border border-border/40 bg-background/60 px-3 py-2">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-medium">
-                  {entry.session_date ? format(new Date(entry.session_date + 'T00:00:00'), 'MMM d') : '—'}
+                  {entry.session_date ? format(new Date(entry.session_date + 'T00:00:00'), 'MMM d, yyyy') : '—'}
                 </span>
                 {!isBodyweight && (
                   <span className="text-xs text-muted-foreground tabular-nums">
@@ -545,8 +548,7 @@ function ConfettiEffect({ active }: { active: boolean }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export function SessionDetailInner({ id }: { id: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -570,6 +572,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState('');
+  const [addMuscleFilter, setAddMuscleFilter] = useState<string | null>(null);
+  const [addCategoryFilter, setAddCategoryFilter] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -577,6 +581,13 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Per-set edit state
   const [setEdits, setSetEdits] = useState<Record<string, Partial<{ reps: string; weight: string; rpe: string }>>>({});
+
+  // Default rest duration from user preference (falls back to 90s)
+  const defaultRestSecs = useMemo(() => {
+    if (typeof window === 'undefined') return 90;
+    const stored = localStorage.getItem(PREF_REST_TIMER);
+    return stored ? parseInt(stored, 10) : 90;
+  }, []);
 
   // Per-exercise rest config: { enabled, duration }
   // Keyed by session_exercise id
@@ -588,6 +599,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const [justCompletedSetId, setJustCompletedSetId] = useState<string | null>(null);
   const [replaceExerciseSeId, setReplaceExerciseSeId] = useState<string | null>(null);
   const [replaceExerciseSearch, setReplaceExerciseSearch] = useState('');
+  const [replaceMuscleFilter, setReplaceMuscleFilter] = useState<string | null>(null);
+  const [replaceCategoryFilter, setReplaceCategoryFilter] = useState<string | null>(null);
   const [replaceUndo, setReplaceUndo] = useState<{
     oldExerciseId: string;
     oldExerciseName: string;
@@ -665,7 +678,6 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   const initializedSessionIdRef = useRef<string | null>(null);
 
   // Auto-enable editing for non-completed sessions
-  const isCompleted = session?.status === 'completed' || session?.status === 'cancelled';
   useEffect(() => {
     if (session && session.status !== 'completed' && session.status !== 'cancelled') {
       setIsEditing(true);
@@ -674,8 +686,12 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Initialise edit + rest state for newly-loaded exercises/sets
   useEffect(() => {
-    if (!session || initializedSessionIdRef.current === session.id) {
-      return;
+    if (!session) return;
+
+    if (initializedSessionIdRef.current !== session.id) {
+      // Clear edits from previous session
+      setSetEdits({});
+      initializedSessionIdRef.current = session.id;
     }
 
     setSetEdits(prev => {
@@ -697,25 +713,33 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       const next = { ...prev };
       for (const se of session.exercises) {
         if (!next[se.id]) {
-          next[se.id] = { enabled: true, duration: se.rest_seconds ?? 90 };
+          next[se.id] = { enabled: true, duration: se.rest_seconds ?? defaultRestSecs };
         }
       }
       return next;
     });
-
-    initializedSessionIdRef.current = session.id;
   }, [session]);
 
   const addedIds = new Set(session?.exercises.map(se => se.exercise_id) ?? []);
 
-  const filteredExercises = allExercises?.filter(
-    ex => !addedIds.has(ex.id) && ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
-  ) ?? [];
+  const muscleGroups = useMemo(() => [...new Set((allExercises ?? []).map(ex => ex.muscle_group).filter(Boolean))].sort(), [allExercises]);
+  const categories = useMemo(() => [...new Set((allExercises ?? []).map(ex => ex.category).filter(Boolean))].sort(), [allExercises]);
 
-  const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id;
-  const replaceFilteredExercises = allExercises?.filter(
-    ex => ex.id !== replaceCurrentExerciseId && ex.name.toLowerCase().includes(replaceExerciseSearch.toLowerCase())
-  ) ?? [];
+  function filterExercises(excludeId: string | null, search: string, muscle: string | null, category: string | null) {
+    return (allExercises ?? []).filter(ex => {
+      if (ex.id === excludeId) return false;
+      if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (muscle && ex.muscle_group?.toLowerCase() !== muscle) return false;
+      if (category && ex.category?.toLowerCase() !== category) return false;
+      return true;
+    });
+  }
+
+  const filteredExercises = filterExercises(null, exerciseSearch, addMuscleFilter, addCategoryFilter)
+    .filter(ex => !addedIds.has(ex.id));
+
+  const replaceCurrentExerciseId = session?.exercises.find(se => se.id === replaceExerciseSeId)?.exercise_id ?? null;
+  const replaceFilteredExercises = filterExercises(replaceCurrentExerciseId, replaceExerciseSearch, replaceMuscleFilter, replaceCategoryFilter);
 
   const totalVolume = useMemo(
     () => session?.exercises.reduce(
@@ -761,12 +785,31 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
   // Fetch weight suggestions for all exercises
   const { data: suggestionsData } = useQuery({
-    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(',')],
+    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(','), session?.meso_cycle_id],
     queryFn: async () => {
       const results = await Promise.allSettled(
         exerciseIds.map(exId =>
-          api.get('/api/suggestions/weight', { params: { exercise_id: exId } })
-            .then(r => ({ exId, data: r.data as { suggested_weight: number; adjustment_reason: string; previous_weight: number } }))
+          api.get('/api/suggestions/weight', {
+            params: {
+              exercise_id: exId,
+              ...(session?.meso_cycle_id ? { meso_cycle_id: session.meso_cycle_id } : {}),
+            },
+          }).then(r => ({
+            exId,
+            data: r.data as {
+              log_id: string;
+              suggested_weight: number;
+              adjustment_reason: string;
+              previous_weight: number;
+              meso_week: number | null;
+              meso_phase: string;
+              meso_phase_label: string;
+              target_rpe: number;
+              session_volume: number;
+              suggested_sets: number;
+              volume_trend: string;
+            },
+          }))
         )
       );
       return results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
@@ -776,7 +819,18 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   });
 
   const suggestionsMap = useMemo(() => {
-    const map: Record<string, { suggested_weight: number; adjustment_reason: string }> = {};
+    const map: Record<string, {
+      log_id: string;
+      suggested_weight: number;
+      adjustment_reason: string;
+      meso_week: number | null;
+      meso_phase: string;
+      meso_phase_label: string;
+      target_rpe: number;
+      session_volume: number;
+      suggested_sets: number;
+      volume_trend: string;
+    }> = {};
     for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
     return map;
   }, [suggestionsData]);
@@ -858,6 +912,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     },
   });
 
+  const recordOutcomeMutation = useMutation({
+    mutationFn: async (data: { logId: string; reps: number; weight: number; rpe?: number }) => {
+      await api.patch(`/api/suggestions/weight/history/${data.logId}`, {
+        actual_reps: data.reps,
+        actual_weight: data.weight,
+        actual_rpe: data.rpe ?? null,
+      });
+    },
+  });
+
   const completeSetMutation = useMutation({
     mutationFn: async (data: { setId: string; seId: string; reps: number; weight: number; rpe?: number }) => {
       const res = await api.put(`/api/sessions/exercise-sets/${data.setId}`, {
@@ -875,6 +939,20 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
       setTimeout(() => setJustCompletedSetId(null), 700);
       const cfg = restConfig[vars.seId] ?? { enabled: true, duration: 90 };
       if (cfg.enabled) startRest(cfg.duration, vars.seId);
+
+      // Record outcome if a suggestion exists for this exercise
+      const se = session?.exercises.find(e => e.id === vars.seId);
+      if (se) {
+        const suggestion = suggestionsMap[se.exercise_id];
+        if (suggestion?.log_id) {
+          recordOutcomeMutation.mutate({
+            logId: suggestion.log_id,
+            reps: vars.reps,
+            weight: vars.weight,
+            rpe: vars.rpe,
+          });
+        }
+      }
     },
   });
 
@@ -1089,7 +1167,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
   if (!session) return <div className="py-24 text-center text-muted-foreground">Session not found.</div>;
 
   let dateStr = session.scheduled_date;
-  try { dateStr = format(new Date(session.scheduled_date + 'T00:00:00'), 'EEEE, MMMM d'); } catch {}
+  try { dateStr = format(new Date(session.scheduled_date + 'T00:00:00'), 'EEEE, MMMM d, yyyy'); } catch {}
 
   const statusVariant =
     session.status === 'completed' ? 'default'
@@ -1120,7 +1198,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
           {/* Left: back */}
           <div className="flex justify-start">
-            <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
+            <Button variant="ghost" size="icon-sm" aria-label="Back" onClick={() => router.back()}>
               <ChevronLeft className="size-4" />
             </Button>
           </div>
@@ -1172,7 +1250,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                 Finish
               </Button>
             )}
-            {isCompleted && (
+            {session.status === 'completed' && (
               <Button variant={isEditing ? 'default' : 'outline'} size="sm"
                 onClick={() => setIsEditing(!isEditing)} className="h-8 gap-1">
                 <Pencil className="size-3.5" />
@@ -1189,7 +1267,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
         style={{ opacity: titleOpacity, transform: `translateY(${(1 - titleOpacity) * -8}px)`, transition: 'none' }}
         className="px-1 pt-1"
       >
-        <h1 className="font-bold text-2xl leading-tight">{session.name}</h1>
+        <h1 className="font-bold text-2xl leading-tight break-words">{session.name}</h1>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-sm text-muted-foreground">{dateStr}</span>
           {totalVolume > 0 && (
@@ -1317,7 +1395,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
             const totalCount = se.sets.length;
             const exVol = se.sets.filter(s => s.is_completed).reduce((t, s) => t + s.reps * s.weight, 0);
             const firstPendingId = se.sets.find(s => !s.is_completed)?.id;
-            const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? 90 };
+            const cfg = restConfig[se.id] ?? { enabled: true, duration: se.rest_seconds ?? defaultRestSecs };
             const suggestion = suggestionsMap[se.exercise_id];
 
             // Compute ghost placeholder text for pending sets.
@@ -1375,7 +1453,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
                         {se.exercise.muscle_group}
                       </span>
-                      <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
+                      <span className="font-semibold text-sm break-words">{se.exercise.name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {totalCount > 0 && (
@@ -1396,6 +1474,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                       {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
                       {isEditing && (
                         <button
+                          title="Remove exercise"
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
                           title="Remove exercise"
                           className="text-muted-foreground hover:text-destructive transition-colors ml-1"
@@ -1406,66 +1485,113 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                     </div>
                   </div>
 
-                  {/* AI suggestion strip — below exercise name (hidden if no history) */}
+                  {/* AI suggestion strip — weight + sets, or no-history note */}
+                  {!suggestion && (
+                    <div className="flex items-center gap-1.5 px-4 pb-2.5">
+                      <Sparkles className="size-3 shrink-0 text-muted-foreground/30" />
+                      <span className="text-xs text-muted-foreground/40">No history yet — log a set to get suggestions</span>
+                    </div>
+                  )}
                   {suggestion && suggestion.suggested_weight > 0 && (() => {
                     const pendingSets = se.sets.filter(s => !s.is_completed);
                     const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
                       (setEdits[s.id]?.weight ?? '') === String(suggestion.suggested_weight)
                     );
+                    const currentSets = se.sets.length;
+                    const needsMoreSets = suggestion.suggested_sets > currentSets;
+
+                    // Show only the actionable last segment of the pipe-separated reason
+                    const reasonParts = suggestion.adjustment_reason?.split(' | ') ?? [];
+                    const shortReason = reasonParts[reasonParts.length - 1] ?? '';
+                    
+                    const isDeload = suggestion.meso_phase === 'deload';
+
                     return (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          if (!isEditing) return;
-                          if (isApplied) {
-                            setSetEdits(prev => {
-                              const next = { ...prev };
-                              for (const s of se.sets) {
-                                if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: '' };
-                              }
-                              return next;
-                            });
-                            flashSuggestion(se.id, 'undo');
-                          } else {
-                            applyWeightSuggestion(se.id, suggestion.suggested_weight);
-                            flashSuggestion(se.id, 'apply');
-                          }
-                        }}
+                      <div
                         className={cn(
-                          'w-full flex items-center gap-2 px-4 pb-2.5 text-left group',
+                          'px-4 pb-2.5 flex items-center justify-between gap-3',
                           suggestionFlash[se.id] === 'apply' && 'suggestion-apply-pop',
                           suggestionFlash[se.id] === 'undo' && 'suggestion-undo-shake',
                         )}
-                        disabled={!isEditing}
                       >
-                        <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : 'text-amber-500')} />
-                        <span className="text-xs text-muted-foreground">
-                          {isApplied ? (
-                            <>
-                              <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
-                              <span className="text-muted-foreground/60"> · {suggestion.suggested_weight} lbs</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{suggestion.suggested_weight} lbs</span>
-                              {suggestion.adjustment_reason && (
-                                <span className="text-muted-foreground/60"> · {suggestion.adjustment_reason}</span>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Sparkles className={cn('size-3 shrink-0', isApplied ? 'text-emerald-500' : isDeload ? 'text-blue-500' : 'text-amber-500')} />
+                          
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (!isEditing) return;
+                              if (isApplied) {
+                                setSetEdits(prev => {
+                                  const next = { ...prev };
+                                  for (const s of se.sets) {
+                                    if (!s.is_completed) next[s.id] = { ...(next[s.id] ?? {}), weight: '' };
+                                  }
+                                  return next;
+                                });
+                                flashSuggestion(se.id, 'undo');
+                              } else {
+                                applyWeightSuggestion(se.id, suggestion.suggested_weight);
+                                flashSuggestion(se.id, 'apply');
+                              }
+                            }}
+                            className="flex items-center gap-1.5 min-w-0 text-left"
+                            disabled={!isEditing}
+                          >
+                            <span className="text-xs text-muted-foreground break-words">
+                              {isApplied ? (
+                                <>
+                                  <span className="font-medium text-emerald-600 dark:text-emerald-400">Applied</span>
+                                  <span className="text-muted-foreground/60"> · {suggestion.suggested_weight} lbs</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className={cn(
+                                    'font-bold tabular-nums shrink-0',
+                                    isDeload ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'
+                                  )}>{suggestion.suggested_weight} lbs</span>
+                                  
+                                  <span className="ml-1.5 font-medium text-muted-foreground shrink-0">@ RPE {suggestion.target_rpe}</span>
+                                  
+                                  {isDeload ? (
+                                    <span className="ml-1.5 px-1 rounded bg-blue-100 dark:bg-blue-900/30 text-[10px] text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider shrink-0">Deload</span>
+                                  ) : (
+                                    <span className="ml-1.5 text-muted-foreground/50 shrink-0">· Wk {suggestion.meso_week}</span>
+                                  )}
+                                  
+                                  {shortReason && (
+                                    <span className="ml-1.5 text-muted-foreground/40 italic break-words">· {shortReason}</span>
+                                  )}
+                                </>
                               )}
-                            </>
-                          )}
-                        </span>
-                        {isEditing && !isApplied && (
-                          <span className="ml-auto text-xs font-semibold text-amber-600 dark:text-amber-400 shrink-0 group-active:opacity-60">
-                            Apply →
-                          </span>
+                            </span>
+                            {!isApplied && isEditing && (
+                              <span className="text-[10px] font-bold text-amber-600/60 dark:text-amber-400/60 uppercase tracking-tighter">Apply</span>
+                            )}
+                          </button>
+                        </div>
+
+                        {isEditing && needsMoreSets && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] font-bold gap-1 bg-primary/5 text-primary hover:bg-primary/10 border border-primary/20"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const last = se.sets[se.sets.length - 1];
+                              addSetMutation.mutate({
+                                seId: se.id,
+                                setNumber: se.sets.length + 1,
+                                reps: last?.reps ?? 10,
+                                weight: last?.weight ?? 0,
+                              });
+                            }}
+                          >
+                            <Plus className="size-2.5" />
+                            {suggestion.suggested_sets} Sets
+                          </Button>
                         )}
-                        {isApplied && isEditing && (
-                          <span className="ml-auto flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 shrink-0">
-                            <CheckCircle2 className="size-3.5" />
-                            <span className="text-muted-foreground/50 font-normal">tap to undo</span>
-                          </span>
-                        )}
-                      </button>
+                      </div>
                     );
                   })()}
                 </div>
@@ -1594,51 +1720,95 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
       {/* ── Add Exercise ───────────────────────────────────────────────────── */}
       {isEditing && (
-      <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
-        <DialogTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
-        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
-          <DialogHeader className="shrink-0"><DialogTitle>Add Exercise</DialogTitle></DialogHeader>
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} className="shrink-0" />
-            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
-              {filteredExercises.length === 0
-                ? <p className="text-sm text-muted-foreground py-6 text-center">{exerciseSearch ? 'No matches' : 'All exercises added'}</p>
-                : filteredExercises.map(ex => (
-                    <button key={ex.id} onClick={() => addExerciseMutation.mutate(ex.id)}
-                      disabled={addExerciseMutation.isPending}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors flex items-center justify-between gap-3">
-                      <span className="font-medium text-sm">{ex.name}</span>
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
-                    </button>
-                  ))}
-            </div>
+      <BottomSheet open={addExerciseOpen} onOpenChange={open => { setAddExerciseOpen(open); if (!open) { setExerciseSearch(''); setAddMuscleFilter(null); setAddCategoryFilter(null); } }}>
+        <BottomSheetTrigger render={<Button variant="outline" className="w-full gap-2"><Plus className="size-4" />Add Exercise</Button>} />
+        <BottomSheetContent title="Add Exercise">
+          <div className="px-4 pb-2 shrink-0">
+            <Input placeholder="Search exercises…" value={exerciseSearch} onChange={e => setExerciseSearch(e.target.value)} autoFocus className="h-11 text-base" />
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="px-4 pb-3 shrink-0 flex gap-2">
+            <Select value={addMuscleFilter ?? ''} onValueChange={v => setAddMuscleFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm">
+                <SelectValue placeholder="Muscle group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All muscles</SelectItem>
+                {muscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={addCategoryFilter ?? ''} onValueChange={v => setAddCategoryFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm capitalize">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All types</SelectItem>
+                {categories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-8">
+            {filteredExercises.length === 0
+              ? <p className="text-sm text-muted-foreground py-8 text-center">{exerciseSearch || addMuscleFilter || addCategoryFilter ? 'No matches' : 'All exercises added'}</p>
+              : filteredExercises.map(ex => (
+                  <button key={ex.id} onClick={() => addExerciseMutation.mutate(ex.id)}
+                    disabled={addExerciseMutation.isPending}
+                    className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
+                    </div>
+                    <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
+                  </button>
+                ))}
+          </div>
+        </BottomSheetContent>
+      </BottomSheet>
       )}
 
       {/* ── Replace Exercise ──────────────────────────────────────────────── */}
-      <Dialog open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); } }}>
-        <DialogContent className="sm:max-w-sm flex flex-col max-h-[80dvh]">
-          <DialogHeader className="shrink-0"><DialogTitle>Replace Exercise</DialogTitle></DialogHeader>
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} className="shrink-0" />
-            <div className="flex-1 overflow-y-auto -mx-1 pb-2">
-              {replaceFilteredExercises.length === 0
-                ? <p className="text-sm text-muted-foreground py-6 text-center">{replaceExerciseSearch ? 'No matches' : 'Loading…'}</p>
-                : replaceFilteredExercises.map(ex => (
-                    <button key={ex.id}
-                      onClick={() => replaceExerciseMutation.mutate({ oldSeId: replaceExerciseSeId!, newExerciseId: ex.id })}
-                      disabled={replaceExerciseMutation.isPending}
-                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors flex items-center justify-between gap-3">
-                      <span className="font-medium text-sm">{ex.name}</span>
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
-                    </button>
-                  ))}
-            </div>
+      <BottomSheet open={!!replaceExerciseSeId} onOpenChange={open => { if (!open) { setReplaceExerciseSeId(null); setReplaceExerciseSearch(''); setReplaceMuscleFilter(null); setReplaceCategoryFilter(null); } }}>
+        <BottomSheetContent title="Replace Exercise">
+          <div className="px-4 pb-2 shrink-0">
+            <Input placeholder="Search exercises…" value={replaceExerciseSearch} onChange={e => setReplaceExerciseSearch(e.target.value)} autoFocus className="h-11 text-base" />
           </div>
-        </DialogContent>
-      </Dialog>
+          <div className="px-4 pb-3 shrink-0 flex gap-2">
+            <Select value={replaceMuscleFilter ?? ''} onValueChange={v => setReplaceMuscleFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm">
+                <SelectValue placeholder="Muscle group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All muscles</SelectItem>
+                {muscleGroups.map(mg => <SelectItem key={mg} value={mg.toLowerCase()}>{mg}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={replaceCategoryFilter ?? ''} onValueChange={v => setReplaceCategoryFilter(v || null)}>
+              <SelectTrigger className="flex-1 h-10 text-sm capitalize">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All types</SelectItem>
+                {categories.map(cat => <SelectItem key={cat} value={cat.toLowerCase()} className="capitalize">{cat}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-8">
+            {replaceFilteredExercises.length === 0
+              ? <p className="text-sm text-muted-foreground py-8 text-center">{replaceExerciseSearch || replaceMuscleFilter || replaceCategoryFilter ? 'No matches' : 'Loading…'}</p>
+              : replaceFilteredExercises.map(ex => (
+                  <button key={ex.id}
+                    onClick={() => replaceExerciseMutation.mutate({ oldSeId: replaceExerciseSeId!, newExerciseId: ex.id })}
+                    disabled={replaceExerciseMutation.isPending}
+                    className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
+                    </div>
+                    <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
+                  </button>
+                ))}
+          </div>
+        </BottomSheetContent>
+      </BottomSheet>
 
       {/* ── Replace undo snackbar ────────────────────────────────────────────── */}
       {replaceUndo && (
@@ -2066,4 +2236,9 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
 
     </div>
   );
+}
+
+export default function SessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return <SessionDetailInner id={id} />;
 }

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete as sa_delete, func
 from sqlalchemy.orm import selectinload
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from app.database import get_db
@@ -13,7 +13,20 @@ from app.schemas import SessionExerciseCreate, SessionExerciseUpdate, SessionExe
 from app.schemas import ExerciseSetCreate, ExerciseSetUpdate, ExerciseSetResponse
 from app.deps import get_current_user_id
 
+from ..database import async_session, migrate_volume_history
+
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+@router.post("/sync-volume")
+async def sync_volume(user_id: str = Depends(get_current_user_id)):
+    """Manually trigger a volume history backfill for the current user."""
+    # In a real production app, we might want to scope this to just the current user
+    # but our migrate_volume_history function is safe to run globally as it's idempotent.
+    try:
+        await migrate_volume_history()
+        return {"message": "Volume history synchronization complete"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
@@ -124,10 +137,10 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    db_session.start_time = datetime.utcnow()
+    db_session.start_time = datetime.now(timezone.utc).replace(tzinfo=None)
     db_session.status = "in_progress"
     if not db_session.actual_date:
-        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+        db_session.actual_date = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
     await db.commit()
     return {"message": "Session started", "start_time": db_session.start_time.isoformat()}
 
@@ -154,7 +167,7 @@ async def get_session_pre_summary(session_id: str, db: AsyncSession = Depends(ge
 
     duration_seconds = None
     if db_session.start_time:
-        duration_seconds = int((datetime.utcnow() - db_session.start_time).total_seconds())
+        duration_seconds = int((datetime.now(timezone.utc).replace(tzinfo=None) - db_session.start_time).total_seconds())
 
     prs = []
     for se in db_session.session_exercises:
@@ -215,9 +228,10 @@ async def complete_session(session_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     
     db_session.status = "completed"
-    db_session.end_time = datetime.utcnow()
+    db_session.start_time = datetime.now(timezone.utc).replace(tzinfo=None)
     if not db_session.actual_date:
-        db_session.actual_date = datetime.utcnow().strftime("%Y-%m-%d")
+        db_session.actual_date = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d")
+
     if not db_session.start_time:
         db_session.start_time = db_session.end_time
     

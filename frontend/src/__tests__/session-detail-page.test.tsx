@@ -20,18 +20,16 @@
  *  - Back navigation
  */
 
-import React from 'react';
 import {
   render,
   screen,
   fireEvent,
   waitFor,
   within,
-  act,
 } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import SessionDetailPage from '@/app/sessions/[id]/page';
+import { SessionDetailInner } from '@/app/sessions/[id]/page';
 import type { TrainingSession, SessionExercise, ExerciseSet, Exercise } from '@/types';
 
 // ─── mocks ──────────────────────────────────────────────────────────────────
