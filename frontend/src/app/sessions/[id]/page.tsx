@@ -1476,6 +1476,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         <button
                           title="Remove exercise"
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
+                          title="Remove exercise"
                           className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                         >
                           <X className="size-3.5" />
