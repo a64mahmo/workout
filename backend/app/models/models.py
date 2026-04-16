@@ -38,7 +38,7 @@ class Exercise(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     session_exercises = relationship("SessionExercise", back_populates="exercise")
-    volume_history = relationship("VolumeHistory", back_populates="exercise")
+    volume_history = relationship("VolumeHistory", back_populates="exercise", cascade="all, delete-orphan")
 
 class MesoCycle(Base):
     __tablename__ = "meso_cycles"
@@ -83,6 +83,7 @@ class TrainingSession(Base):
     status = Column(String, default="scheduled")
     notes = Column(Text)
     total_volume = Column(Float, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Fitbit session fields
     start_time = Column(DateTime(timezone=True), nullable=True)
@@ -101,7 +102,7 @@ class SessionExercise(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String, ForeignKey("training_sessions.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False, index=True)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="SET NULL"), nullable=True, index=True)
     order_index = Column(Integer, default=0)
     notes = Column(Text)
 
@@ -155,7 +156,7 @@ class VolumeHistory(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False, index=True)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False, index=True)
     session_id = Column(String, ForeignKey("training_sessions.id"), nullable=False, index=True)
     total_volume = Column(Float, default=0)
     calculated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
@@ -195,7 +196,7 @@ class SuggestionLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
     meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"), nullable=True)
 
     # What the algorithm saw
@@ -222,7 +223,7 @@ class PlanExercise(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=False)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
     order_index = Column(Integer, default=0)
     target_sets = Column(Integer, default=3)
     target_reps = Column(Integer, default=10)
