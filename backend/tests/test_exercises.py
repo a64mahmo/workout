@@ -7,37 +7,41 @@ from httpx import AsyncClient
 
 # ── List / Get ────────────────────────────────────────────────────────────────
 
-async def test_list_exercises_empty(client: AsyncClient):
+async def test_list_exercises_requires_auth(client: AsyncClient):
     r = await client.get("/api/exercises")
-    assert r.status_code == 200
-    assert r.json() == []
+    assert r.status_code == 401
 
 
-async def test_list_exercises_returns_all(auth_client: AsyncClient):
+async def test_list_exercises_returns_newly_created(auth_client: AsyncClient):
+    # Registration seeds ~70 exercises. We create 3 more.
     for mg in ["chest", "back", "legs"]:
         await auth_client.post(
             "/api/exercises",
-            json={"name": f"{mg} exercise", "muscle_group": mg, "category": "weighted"},
+            json={"name": f"TEST {mg} exercise", "muscle_group": mg, "category": "weighted"},
         )
     r = await auth_client.get("/api/exercises")
     assert r.status_code == 200
-    assert len(r.json()) == 3
+    data = r.json()
+    test_exercises = [ex for ex in data if ex["name"].startswith("TEST ")]
+    assert len(test_exercises) == 3
 
 
 async def test_list_exercises_filter_by_muscle_group(auth_client: AsyncClient):
     await auth_client.post(
         "/api/exercises",
-        json={"name": "Squat", "muscle_group": "legs", "category": "weighted"},
+        json={"name": "TEST Squat", "muscle_group": "legs", "category": "weighted"},
     )
     await auth_client.post(
         "/api/exercises",
-        json={"name": "Bench", "muscle_group": "chest", "category": "weighted"},
+        json={"name": "TEST Bench", "muscle_group": "chest", "category": "weighted"},
     )
     r = await auth_client.get("/api/exercises?muscle_group=legs")
     assert r.status_code == 200
     data = r.json()
-    assert len(data) == 1
-    assert data[0]["muscle_group"] == "legs"
+    # Should only see the one we just added for legs + any seeded leg exercises
+    test_data = [ex for ex in data if ex["name"].startswith("TEST ")]
+    assert len(test_data) == 1
+    assert test_data[0]["muscle_group"] == "legs"
 
 
 async def test_get_exercise_by_id(auth_client: AsyncClient, exercise: dict):
@@ -46,8 +50,8 @@ async def test_get_exercise_by_id(auth_client: AsyncClient, exercise: dict):
     assert r.json()["name"] == "Bench Press"
 
 
-async def test_get_exercise_not_found(client: AsyncClient):
-    r = await client.get("/api/exercises/nonexistent-id-123")
+async def test_get_exercise_not_found(auth_client: AsyncClient):
+    r = await auth_client.get("/api/exercises/nonexistent-id-123")
     assert r.status_code == 404
 
 

@@ -1281,7 +1281,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                 Finish
               </Button>
             )}
-            {session.status === 'completed' && (
+            {(session.status === 'completed' || session.status === 'cancelled') && (
               <Button variant={isEditing ? 'default' : 'outline'} size="sm"
                 onClick={() => setIsEditing(!isEditing)} className="h-8 gap-1">
                 <Pencil className="size-3.5" />
@@ -1525,6 +1525,16 @@ export function SessionDetailInner({ id }: { id: string }) {
                           {se.exercise.muscle_group}
                         </span>
                         <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        {totalCount > 0 && (
+                          <span className={cn(
+                            'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
+                            completedCount === totalCount && totalCount > 0
+                              ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-muted-foreground bg-muted/40',
+                          )}>
+                            {completedCount}/{totalCount}
+                          </span>
+                        )}
                         <ChevronUp className="size-3.5 shrink-0 text-emerald-500" />
                       </button>
                     ) : (
@@ -1533,6 +1543,16 @@ export function SessionDetailInner({ id }: { id: string }) {
                           {se.exercise.muscle_group}
                         </span>
                         <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        {totalCount > 0 && (
+                          <span className={cn(
+                            'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
+                            completedCount === totalCount && totalCount > 0
+                              ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-muted-foreground bg-muted/40',
+                          )}>
+                            {completedCount}/{totalCount}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="flex items-center gap-0.5 shrink-0 -mr-1">
@@ -1552,6 +1572,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         <button
                           type="button"
                           aria-label="Remove exercise"
+                          title="Remove exercise"
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
                           className="size-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                         >
