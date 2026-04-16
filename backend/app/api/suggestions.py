@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from typing import List, Optional
 from pydantic import BaseModel
 from ..database import async_session
-from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog
+from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog, PlanSession, PlanExercise, MicroCycle
 from ..deps import get_current_user_id
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
@@ -67,26 +67,105 @@ async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
         return suggestions
 
 
+def _epley_e1rm(weight: float, reps: int) -> float:
+    """Estimate 1RM using Epley formula.  weight × (1 + reps/30)."""
+    if reps <= 0 or weight <= 0:
+        return weight
+    if reps == 1:
+        return weight
+    return weight * (1 + reps / 30.0)
+
+
+def _weight_for_rpe(e1rm: float, target_reps: int, target_rpe: float) -> float:
+    """Back-calculate the working weight that should produce a given RPE at target reps.
+
+    RPE maps to Reps-In-Reserve (RIR):  RIR = 10 - RPE
+    The lifter can theoretically do (target_reps + RIR) total reps at that weight.
+    We invert Epley:  weight = e1RM / (1 + effective_reps / 30)
+    """
+    rir = 10.0 - target_rpe
+    effective_reps = target_reps + rir
+    if effective_reps <= 0:
+        return e1rm
+    return e1rm / (1 + effective_reps / 30.0)
+
+
+def _round_to_plate(weight: float) -> float:
+    """Round to nearest 2.5 lbs for practical plate loading."""
+    return round(round(weight / 2.5) * 2.5, 1)
+
+
 @router.get("/weight")
 async def suggest_weight(
     user_id: str = Depends(get_current_user_id),
     exercise_id: str = Query(...),
     meso_cycle_id: str = Query(None),
+    session_id: str = Query(None),
 ):
     """
-    RP-style weight suggestion:
-    - Reference point: top set (max weight) of the most recent completed session for this exercise,
-      within the same meso cycle if provided (avoids data pollution from different programs).
-    - Progression: compares last session's top set against the prior session's top set to detect
-      whether the lifter is improving, stalling, or regressing.
-    - RPE awareness: uses average RPE of last session's working sets. Thresholds are calibrated
-      for hypertrophy (RPE 7-8 = normal, RPE 9+ = high, RPE 10 = max effort / consider deload).
-    - Rep-aware: reports reps at the top set and adjusts suggestion messaging accordingly.
-    - Meso-aware: restricts history to the current meso cycle when provided.
+    RP-style weight suggestion with week-aware periodisation.
+
+    When a session_id is provided and links to a plan, the algorithm:
+    1. Looks up the PlanExercise to find the target_rpe and target_reps for
+       this exercise in the current week of the program.
+    2. Estimates the lifter's e1RM from recent performance using the Epley
+       formula:  e1RM = weight × (1 + reps / 30).
+    3. Back-calculates the weight that should produce the target RPE at the
+       prescribed rep count:
+         RIR = 10 − target_rpe
+         effective_reps = target_reps + RIR
+         suggested_weight = e1RM / (1 + effective_reps / 30)
+
+    Falls back to the original RPE-threshold heuristic when no plan context
+    is available.
     """
     async with async_session() as session:
-        # Build base query — fetch all working sets for this exercise, most recent sessions first.
-        # Restrict to current meso cycle if provided to avoid data pollution.
+        # ── Try to resolve plan context from the current session ──────────
+        plan_target_rpe = None
+        plan_target_reps = None
+        week_number = None
+        total_weeks = None
+
+        if session_id:
+            ts_result = await session.execute(
+                select(TrainingSession.plan_session_id, TrainingSession.meso_cycle_id)
+                .where(TrainingSession.id == session_id)
+            )
+            ts_row = ts_result.first()
+
+            if ts_row and ts_row.plan_session_id:
+                # Get week number from PlanSession
+                ps_result = await session.execute(
+                    select(PlanSession.week_number, PlanSession.plan_id)
+                    .where(PlanSession.id == ts_row.plan_session_id)
+                )
+                ps_row = ps_result.first()
+                if ps_row:
+                    week_number = ps_row.week_number
+
+                    # Get total weeks in this plan
+                    tw_result = await session.execute(
+                        select(func.max(PlanSession.week_number))
+                        .where(PlanSession.plan_id == ps_row.plan_id)
+                    )
+                    total_weeks = tw_result.scalar() or week_number
+
+                # Look up target RPE and reps for this exercise in this plan session
+                pe_result = await session.execute(
+                    select(PlanExercise.target_rpe, PlanExercise.target_reps)
+                    .where(PlanExercise.plan_session_id == ts_row.plan_session_id)
+                    .where(PlanExercise.exercise_id == exercise_id)
+                )
+                pe_row = pe_result.first()
+                if pe_row:
+                    plan_target_rpe = float(pe_row.target_rpe) if pe_row.target_rpe else None
+                    plan_target_reps = int(pe_row.target_reps) if pe_row.target_reps else None
+
+            # Inherit meso_cycle_id from the session if not provided
+            if not meso_cycle_id and ts_row and ts_row.meso_cycle_id:
+                meso_cycle_id = ts_row.meso_cycle_id
+
+        # ── Fetch exercise history ────────────────────────────────────────
         base = (
             select(
                 ExerciseSet.set_number,
@@ -120,10 +199,13 @@ async def suggest_weight(
                 "suggested_weight": 0,
                 "average_rpe": None,
                 "adjustment_reason": "No history — start light and build up",
+                "week_number": week_number,
+                "total_weeks": total_weeks,
+                "target_rpe": plan_target_rpe,
             }
 
         # Group sets by session_id, preserving recency order
-        from collections import defaultdict, OrderedDict
+        from collections import OrderedDict
         sessions_map: dict = OrderedDict()
         for row in rows:
             sid = row.session_id
@@ -152,54 +234,97 @@ async def suggest_weight(
             prev_sets = sessions_map[session_ids[1]]
             prev_weight = float(top_set(prev_sets).weight)
 
-        # ── Suggestion logic ─────────────────────────────────────────────────
-        # RPE thresholds calibrated for hypertrophy:
-        #   < 7  (>3 RIR) — too easy, push harder next session
-        #   7–8  (2-3 RIR) — optimal hypertrophy range, progress normally
-        #   8–9  (1-2 RIR) — high effort, small increment or hold
-        #   9–10 (0-1 RIR) — very high, hold weight and focus on reps/form
-        #   10   (0 RIR)  — consider a small deload next session
+        # ── e1RM-based suggestion (when we have plan context) ─────────────
+        # Use the best e1RM estimate across recent working sets for robustness.
+        if plan_target_rpe is not None and last_reps and last_reps > 0:
+            target_reps = plan_target_reps or last_reps
 
-        if avg_rpe is None:
-            # No RPE data: fall back to simple session-over-session progression
-            if prev_weight and last_weight > prev_weight:
-                suggested = last_weight + 2.5
-                reason = f"Beat last session ({prev_weight} → {last_weight} lbs) — keep progressing"
-            elif prev_weight and last_weight == prev_weight:
-                suggested = last_weight + 2.5
-                reason = f"Matched last session at {last_weight} lbs — try adding 2.5 lbs"
+            # Compute e1RM from each working set with RPE data for a better
+            # estimate.  When RPE is logged we adjust: the lifter had RIR reps
+            # left, so effective_total = reps + RIR.
+            e1rm_estimates = []
+            for s in last_sets:
+                w, r = float(s.weight), int(s.reps) if s.reps else 0
+                if w <= 0 or r <= 0:
+                    continue
+                if s.rpe is not None:
+                    rir = 10.0 - float(s.rpe)
+                    effective = r + rir
+                    e1rm_estimates.append(w * (1 + effective / 30.0))
+                else:
+                    e1rm_estimates.append(_epley_e1rm(w, r))
+
+            if e1rm_estimates:
+                # Use the median to reduce impact of outlier sets
+                e1rm_estimates.sort()
+                mid = len(e1rm_estimates) // 2
+                e1rm = e1rm_estimates[mid] if len(e1rm_estimates) % 2 else (e1rm_estimates[mid - 1] + e1rm_estimates[mid]) / 2
+
+                suggested = _weight_for_rpe(e1rm, target_reps, plan_target_rpe)
+                suggested = _round_to_plate(suggested)
+
+                week_label = f"Week {week_number}/{total_weeks}" if week_number and total_weeks else f"Week {week_number}" if week_number else ""
+
+                # Compare to last session for a human-friendly delta
+                diff = suggested - last_weight
+                if abs(diff) < 0.1:
+                    delta = "same as last session"
+                elif diff > 0:
+                    delta = f"+{_round_to_plate(diff)} lbs from last"
+                else:
+                    delta = f"{_round_to_plate(diff)} lbs from last"
+
+                rir = 10.0 - plan_target_rpe
+                rpe_str = f"{int(plan_target_rpe)}" if plan_target_rpe == int(plan_target_rpe) else f"{plan_target_rpe}"
+                rir_int = int(rir) if rir == int(rir) else round(rir)
+                effort_label = f"RPE {rpe_str} ({rir_int} RIR)"
+
+                if week_label:
+                    reason = f"{week_label} · {effort_label} · {delta}"
+                else:
+                    reason = f"{effort_label} · {delta}"
             else:
-                suggested = last_weight
-                reason = f"Top set: {last_weight} lbs — no RPE logged, hold and track effort"
-        elif avg_rpe >= 9.5:
-            # Near/at failure — small deload to recover, don't hammer RPE 10 every session
-            suggested = round(last_weight * 0.95, 1)
-            reason = f"RPE {avg_rpe} — very high effort, back off ~5% to recover quality reps"
-        elif avg_rpe >= 9.0:
-            # Hard but manageable — hold weight, aim for more reps
-            suggested = last_weight
-            reason = f"RPE {avg_rpe} — hold at {last_weight} lbs and aim for {(last_reps or 0) + 1}+ reps"
-        elif avg_rpe >= 8.0:
-            # Normal late-meso intensity — small increment
-            suggested = last_weight + 2.5
-            reason = f"RPE {avg_rpe} — solid effort, add 2.5 lbs"
-        elif avg_rpe >= 7.0:
-            # Optimal range — standard progression
-            suggested = last_weight + 2.5
-            reason = f"RPE {avg_rpe} — in the zone, progress +2.5 lbs"
-        else:
-            # Too easy — bigger jump
-            suggested = last_weight + 5.0
-            reason = f"RPE {avg_rpe} — felt easy, push harder (+5 lbs)"
+                # Have plan context but no usable sets — fall through to heuristic
+                plan_target_rpe = None
 
-        # Round to nearest 2.5 for practical plate loading
-        suggested = round(round(suggested / 2.5) * 2.5, 1)
+        # ── Heuristic fallback (no plan or no usable e1RM) ────────────────
+        if plan_target_rpe is None:
+            if avg_rpe is None:
+                if prev_weight and last_weight > prev_weight:
+                    suggested = last_weight + 2.5
+                    reason = f"Beat last session ({prev_weight} → {last_weight} lbs) — keep progressing"
+                elif prev_weight and last_weight == prev_weight:
+                    suggested = last_weight + 2.5
+                    reason = f"Matched last session at {last_weight} lbs — try adding 2.5 lbs"
+                else:
+                    suggested = last_weight
+                    reason = f"Top set: {last_weight} lbs — no RPE logged, hold and track effort"
+            elif avg_rpe >= 9.5:
+                suggested = round(last_weight * 0.95, 1)
+                reason = f"RPE {avg_rpe} — very high effort, back off ~5% to recover quality reps"
+            elif avg_rpe >= 9.0:
+                suggested = last_weight
+                reason = f"RPE {avg_rpe} — hold at {last_weight} lbs and aim for {(last_reps or 0) + 1}+ reps"
+            elif avg_rpe >= 8.0:
+                suggested = last_weight + 2.5
+                reason = f"RPE {avg_rpe} — solid effort, add 2.5 lbs"
+            elif avg_rpe >= 7.0:
+                suggested = last_weight + 2.5
+                reason = f"RPE {avg_rpe} — in the zone, progress +2.5 lbs"
+            else:
+                suggested = last_weight + 5.0
+                reason = f"RPE {avg_rpe} — felt easy, push harder (+5 lbs)"
+
+            suggested = _round_to_plate(suggested)
 
         response = {
             "previous_weight": round(last_weight, 1),
             "suggested_weight": suggested,
             "average_rpe": avg_rpe,
             "adjustment_reason": reason,
+            "week_number": week_number,
+            "total_weeks": total_weeks,
+            "target_rpe": plan_target_rpe,
             # Legacy fields kept for API compatibility
             "average_weight": round(last_weight, 1),
             "suggestion": reason,
