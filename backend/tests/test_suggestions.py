@@ -73,10 +73,10 @@ async def _suggest(client, exercise_id, cycle_id, sets, date="2026-04-01"):
     return r.json()
 
 
-async def test_weight_suggestion_rpe_below_7_gives_plus5(
+async def test_weight_suggestion_rpe_below_7_gives_increase(
     auth_client: AsyncClient, exercise: dict, cycle: dict
 ):
-    """avg_rpe < 7 → too easy → +5 lbs."""
+    """avg_rpe < 7 → too easy → increase weight (approx +2.5% per RPE unit)."""
     suggestion = await _suggest(
         auth_client,
         exercise["id"],
@@ -86,48 +86,52 @@ async def test_weight_suggestion_rpe_below_7_gives_plus5(
             {"set_number": 2, "reps": 10, "weight": 100.0, "rpe": 6.0},
         ],
     )
-    assert suggestion["suggested_weight"] == pytest.approx(105.0)
+    # Target RPE for Week 1 accumulation is 7.0. 
+    # Delta = 7.0 - 6.0 = 1.0. 
+    # Adjustment = 100 * (1 + 1.0 * 0.025) = 102.5.
+    assert suggestion["suggested_weight"] == pytest.approx(102.5)
     assert suggestion["average_rpe"] == pytest.approx(6.0)
-    assert "+5" in suggestion["adjustment_reason"]
+    assert "add" in suggestion["adjustment_reason"].lower()
 
 
-async def test_weight_suggestion_rpe_7_to_8_gives_plus2_5(
+async def test_weight_suggestion_rpe_at_target_holds_weight(
     auth_client: AsyncClient, exercise: dict, cycle: dict
 ):
-    """avg_rpe 7–8 → optimal zone → +2.5 lbs."""
+    """avg_rpe at target → optimal zone → maintain weight."""
     suggestion = await _suggest(
         auth_client,
         exercise["id"],
         cycle["id"],
         [
-            {"set_number": 1, "reps": 10, "weight": 100.0, "rpe": 7.5},
-            {"set_number": 2, "reps": 10, "weight": 100.0, "rpe": 7.5},
+            {"set_number": 1, "reps": 10, "weight": 100.0, "rpe": 7.0},
+            {"set_number": 2, "reps": 10, "weight": 100.0, "rpe": 7.0},
         ],
     )
-    assert suggestion["suggested_weight"] == pytest.approx(102.5)
-    assert "2.5" in suggestion["adjustment_reason"]
+    assert suggestion["suggested_weight"] == pytest.approx(100.0)
+    assert "maintain" in suggestion["adjustment_reason"].lower()
 
 
-async def test_weight_suggestion_rpe_8_to_9_gives_plus2_5(
+async def test_weight_suggestion_rpe_near_target_holds_weight(
     auth_client: AsyncClient, exercise: dict, cycle: dict
 ):
-    """avg_rpe 8–9 → late-meso intensity → +2.5 lbs."""
+    """avg_rpe near target (within 0.4) → maintain weight."""
     suggestion = await _suggest(
         auth_client,
         exercise["id"],
         cycle["id"],
         [
-            {"set_number": 1, "reps": 8, "weight": 100.0, "rpe": 8.5},
-            {"set_number": 2, "reps": 8, "weight": 100.0, "rpe": 8.5},
+            {"set_number": 1, "reps": 8, "weight": 100.0, "rpe": 7.2},
+            {"set_number": 2, "reps": 8, "weight": 100.0, "rpe": 7.2},
         ],
     )
-    assert suggestion["suggested_weight"] == pytest.approx(102.5)
+    assert suggestion["suggested_weight"] == pytest.approx(100.0)
+    assert "maintain" in suggestion["adjustment_reason"].lower()
 
 
 async def test_weight_suggestion_rpe_9_to_9_5_hold_weight(
     auth_client: AsyncClient, exercise: dict, cycle: dict
 ):
-    """avg_rpe 9–9.5 → very hard → hold weight."""
+    """avg_rpe 9–9.5 → very hard → reduce weight to avoid burnout."""
     suggestion = await _suggest(
         auth_client,
         exercise["id"],
@@ -137,14 +141,15 @@ async def test_weight_suggestion_rpe_9_to_9_5_hold_weight(
             {"set_number": 2, "reps": 6, "weight": 100.0, "rpe": 9.2},
         ],
     )
-    assert suggestion["suggested_weight"] == pytest.approx(100.0)
-    assert "hold" in suggestion["adjustment_reason"].lower()
+    # 100 * 0.95 = 95.0
+    assert suggestion["suggested_weight"] == pytest.approx(95.0)
+    assert "reduce" in suggestion["adjustment_reason"].lower()
 
 
 async def test_weight_suggestion_rpe_above_9_5_deload(
     auth_client: AsyncClient, exercise: dict, cycle: dict
 ):
-    """avg_rpe >= 9.5 → near failure → -5%."""
+    """avg_rpe >= 9.5 → near failure → trigger deload (65% of weight)."""
     suggestion = await _suggest(
         auth_client,
         exercise["id"],
@@ -154,9 +159,9 @@ async def test_weight_suggestion_rpe_above_9_5_deload(
             {"set_number": 2, "reps": 5, "weight": 100.0, "rpe": 9.8},
         ],
     )
-    # 100 * 0.95 = 95, rounded to nearest 2.5 = 95
-    assert suggestion["suggested_weight"] == pytest.approx(95.0)
-    assert "back off" in suggestion["adjustment_reason"].lower()
+    # 100 * 0.65 = 65.0
+    assert suggestion["suggested_weight"] == pytest.approx(65.0)
+    assert "deload" in suggestion["adjustment_reason"].lower()
 
 
 async def test_weight_suggestion_rounding_to_2_5(

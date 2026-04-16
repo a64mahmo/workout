@@ -28,6 +28,7 @@ class SuggestionResult(BaseModel):
     target_rpe: float
     suggested_sets: int
     volume_directive: str
+    estimated_1rm: Optional[float] = None
 
 class ProgressionService:
     @staticmethod
@@ -189,5 +190,6 @@ class ProgressionService:
             meso_phase_label=phase_cfg.label,
             target_rpe=target_rpe,
             suggested_sets=suggested_sets,
-            volume_directive=volume_directive
+            volume_directive=volume_directive,
+            estimated_1rm=None
         )

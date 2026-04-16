@@ -575,6 +575,7 @@ export function SessionDetailInner({ id }: { id: string }) {
   const [addMuscleFilter, setAddMuscleFilter] = useState<string | null>(null);
   const [addCategoryFilter, setAddCategoryFilter] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
+  const [collapsedExercises, setCollapsedExercises] = useState<Set<string>>(new Set());
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfettiActive, setIsConfettiActive] = useState(false);
@@ -753,6 +754,33 @@ export function SessionDetailInner({ id }: { id: string }) {
     [session],
   );
 
+  // Auto-collapse exercises when all sets are completed
+  const userExpandedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!session) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const se of session.exercises) {
+      const allDone = se.sets.length > 0 && se.sets.every(s => s.is_completed);
+      if (allDone && !collapsedExercises.has(se.id) && !userExpandedRef.current.has(se.id)) {
+        timers.push(setTimeout(() => {
+          setCollapsedExercises(prev => new Set(prev).add(se.id));
+        }, 600));
+      }
+      // Un-collapse if a set was unchecked
+      if (!allDone) {
+        userExpandedRef.current.delete(se.id);
+        if (collapsedExercises.has(se.id)) {
+          setCollapsedExercises(prev => {
+            const next = new Set(prev);
+            next.delete(se.id);
+            return next;
+          });
+        }
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [session]);
+
   // Prefetch previous-session performance for all exercises so we can show it inline per set row
   const exerciseIds = useMemo(() => session?.exercises.map(se => se.exercise_id) ?? [], [session]);
   const { data: allHistoryData } = useQuery({
@@ -785,13 +813,14 @@ export function SessionDetailInner({ id }: { id: string }) {
 
   // Fetch weight suggestions for all exercises
   const { data: suggestionsData } = useQuery({
-    queryKey: ['exercises-suggestions-bulk', exerciseIds.join(','), session?.meso_cycle_id],
+    queryKey: ['exercises-suggestions-bulk', id, [...exerciseIds].sort().join(','), session?.meso_cycle_id],
     queryFn: async () => {
       const results = await Promise.allSettled(
         exerciseIds.map(exId =>
           api.get('/api/suggestions/weight', {
             params: {
               exercise_id: exId,
+              session_id: id,
               ...(session?.meso_cycle_id ? { meso_cycle_id: session.meso_cycle_id } : {}),
             },
           }).then(r => ({
@@ -808,6 +837,7 @@ export function SessionDetailInner({ id }: { id: string }) {
               session_volume: number;
               suggested_sets: number;
               volume_trend: string;
+              estimated_1rm: number | null;
             },
           }))
         )
@@ -830,6 +860,7 @@ export function SessionDetailInner({ id }: { id: string }) {
       session_volume: number;
       suggested_sets: number;
       volume_trend: string;
+      estimated_1rm: number | null;
     }> = {};
     for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
     return map;
@@ -1250,7 +1281,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                 Finish
               </Button>
             )}
-            {session.status === 'completed' && (
+            {(session.status === 'completed' || session.status === 'cancelled') && (
               <Button variant={isEditing ? 'default' : 'outline'} size="sm"
                 onClick={() => setIsEditing(!isEditing)} className="h-8 gap-1">
                 <Pencil className="size-3.5" />
@@ -1443,43 +1474,109 @@ export function SessionDetailInner({ id }: { id: string }) {
                     transition: swX === 0 ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
                   }}
                 >
-                {/* Exercise header (tap for history) */}
-                <div
-                  className="border-b border-border/50"
-                  onClick={() => toggleHistory(se.id)}
-                >
-                  <div className="flex items-center justify-between px-4 pt-3 pb-2 cursor-pointer hover:bg-muted/30 transition-colors">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
-                        {se.exercise.muscle_group}
+                {collapsedExercises.has(se.id) ? (
+                  /* ── Collapsed view — single compact row, tap to expand ── */
+                  <button
+                    type="button"
+                    aria-expanded={false}
+                    aria-label={`Expand ${se.exercise.name}`}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors text-left animate-in fade-in slide-in-from-top-1 duration-200"
+                    onClick={() => {
+                      userExpandedRef.current.add(se.id);
+                      setCollapsedExercises(prev => { const n = new Set(prev); n.delete(se.id); return n; });
+                    }}
+                  >
+                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
+                      {se.exercise.muscle_group}
+                    </span>
+                    <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
+                      <span className="text-xs tabular-nums font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">
+                        {completedCount}/{totalCount}
                       </span>
-                      <span className="font-semibold text-sm break-words">{se.exercise.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {totalCount > 0 && (
-                        <span className={cn(
-                          'text-xs tabular-nums font-medium px-1.5 py-0.5 rounded',
-                          completedCount === totalCount && totalCount > 0
-                            ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
-                            : 'text-muted-foreground',
-                        )}>
-                          {completedCount}/{totalCount}
-                        </span>
-                      )}
                       {exVol > 0 && (
                         <span className="text-xs text-muted-foreground tabular-nums">
                           {exVol >= 1000 ? `${(exVol / 1000).toFixed(1)}k` : exVol} lbs
                         </span>
                       )}
-                      {historyOpen ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+                      <ChevronDown className="size-3.5 text-muted-foreground" />
+                    </div>
+                  </button>
+                ) : (
+                  /* ── Expanded view — full card ── */
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                {/* Exercise header — mobile-first: name row + metrics row with dedicated icon buttons */}
+                <div className="border-b border-border/50">
+                  {/* Row 1 — name region (tap to collapse when all done) + icon buttons */}
+                  <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+                    {completedCount === totalCount && totalCount > 0 ? (
+                      <button
+                        type="button"
+                        aria-expanded={true}
+                        aria-label={`Collapse ${se.exercise.name}`}
+                        onClick={() => {
+                          userExpandedRef.current.delete(se.id);
+                          setCollapsedExercises(prev => new Set(prev).add(se.id));
+                        }}
+                        className="flex-1 min-w-0 flex items-center gap-2 text-left -ml-1 px-1 py-1 rounded-md hover:bg-muted/40 active:bg-muted/60 transition-colors"
+                      >
+                        <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
+                          {se.exercise.muscle_group}
+                        </span>
+                        <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        {totalCount > 0 && (
+                          <span className={cn(
+                            'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
+                            completedCount === totalCount && totalCount > 0
+                              ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-muted-foreground bg-muted/40',
+                          )}>
+                            {completedCount}/{totalCount}
+                          </span>
+                        )}
+                        <ChevronUp className="size-3.5 shrink-0 text-emerald-500" />
+                      </button>
+                    ) : (
+                      <div className="flex-1 min-w-0 flex items-center gap-2 px-1 py-1 -ml-1">
+                        <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
+                          {se.exercise.muscle_group}
+                        </span>
+                        <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        {totalCount > 0 && (
+                          <span className={cn(
+                            'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
+                            completedCount === totalCount && totalCount > 0
+                              ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-muted-foreground bg-muted/40',
+                          )}>
+                            {completedCount}/{totalCount}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+                      <button
+                        type="button"
+                        aria-label={historyOpen ? 'Hide history' : 'Show history'}
+                        aria-pressed={historyOpen}
+                        onClick={e => { e.stopPropagation(); toggleHistory(se.id); }}
+                        className={cn(
+                          'size-9 flex items-center justify-center rounded-full transition-colors',
+                          historyOpen ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60',
+                        )}
+                      >
+                        <Clock className="size-4" />
+                      </button>
                       {isEditing && (
                         <button
+                          type="button"
+                          aria-label="Remove exercise"
                           title="Remove exercise"
                           onClick={e => { e.stopPropagation(); removeExerciseMutation.mutate(se.id); }}
-                          title="Remove exercise"
-                          className="text-muted-foreground hover:text-destructive transition-colors ml-1"
+                          className="size-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                         >
-                          <X className="size-3.5" />
+                          <X className="size-4" />
                         </button>
                       )}
                     </div>
@@ -1494,9 +1591,12 @@ export function SessionDetailInner({ id }: { id: string }) {
                   )}
                   {suggestion && suggestion.suggested_weight > 0 && (() => {
                     const pendingSets = se.sets.filter(s => !s.is_completed);
-                    const isApplied = pendingSets.length > 0 && pendingSets.every(s =>
+                    // Check pending sets via edit state, and completed sets via their logged weight
+                    const pendingMatch = pendingSets.length === 0 || pendingSets.every(s =>
                       (setEdits[s.id]?.weight ?? '') === String(suggestion.suggested_weight)
                     );
+                    const completedAtSuggestion = se.sets.some(s => s.is_completed && s.weight === suggestion.suggested_weight);
+                    const isApplied = pendingMatch && completedAtSuggestion;
                     const currentSets = se.sets.length;
                     const needsMoreSets = suggestion.suggested_sets > currentSets;
 
@@ -1553,6 +1653,12 @@ export function SessionDetailInner({ id }: { id: string }) {
                                   
                                   <span className="ml-1.5 font-medium text-muted-foreground shrink-0">@ RPE {suggestion.target_rpe}</span>
                                   
+                                  {suggestion.estimated_1rm && (
+                                    <span className="ml-1.5 px-1 rounded bg-muted text-[10px] text-muted-foreground font-medium shrink-0">
+                                      e1RM: {suggestion.estimated_1rm}
+                                    </span>
+                                  )}
+
                                   {isDeload ? (
                                     <span className="ml-1.5 px-1 rounded bg-blue-100 dark:bg-blue-900/30 text-[10px] text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider shrink-0">Deload</span>
                                   ) : (
@@ -1711,6 +1817,8 @@ export function SessionDetailInner({ id }: { id: string }) {
                     Add Set
                   </button>
                 </div>
+                  </div>
+                )}
                 </div>
               </div>
             );
@@ -1919,7 +2027,17 @@ export function SessionDetailInner({ id }: { id: string }) {
                 {!userPlans?.length && (
                   <p className="text-sm text-muted-foreground text-center py-10">No programs yet. Create a plan first.</p>
                 )}
-                {userPlans?.map((plan, i) => {
+                {[...(userPlans ?? [])]
+                  .sort((a, b) => {
+                    const ap = plansProgress?.[a.id];
+                    const bp = plansProgress?.[b.id];
+                    const aStarted = (ap?.completed_session_ids.length ?? 0) > 0;
+                    const bStarted = (bp?.completed_session_ids.length ?? 0) > 0;
+                    if (aStarted && !bStarted) return -1;
+                    if (!aStarted && bStarted) return 1;
+                    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                  })
+                  .map((plan, i) => {
                   const totalWeeks = plan.plan_sessions.length > 0
                     ? Math.max(...plan.plan_sessions.map(s => s.week_number)) : 0;
                   const pp = plansProgress?.[plan.id];
