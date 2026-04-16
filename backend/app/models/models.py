@@ -38,7 +38,7 @@ class Exercise(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     session_exercises = relationship("SessionExercise", back_populates="exercise")
-    volume_history = relationship("VolumeHistory", back_populates="exercise")
+    volume_history = relationship("VolumeHistory", back_populates="exercise", cascade="all, delete-orphan")
 
 class MesoCycle(Base):
     __tablename__ = "meso_cycles"
@@ -60,7 +60,7 @@ class MicroCycle(Base):
     __tablename__ = "micro_cycles"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"), nullable=False)
+    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id", ondelete="CASCADE"), nullable=False)
     week_number = Column(Integer, nullable=False)
     focus = Column(String)
     start_date = Column(String)
@@ -74,15 +74,16 @@ class TrainingSession(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"))
-    micro_cycle_id = Column(String, ForeignKey("micro_cycles.id"))
-    plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=True)
+    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id", ondelete="SET NULL"), nullable=True)
+    micro_cycle_id = Column(String, ForeignKey("micro_cycles.id", ondelete="SET NULL"), nullable=True)
+    plan_session_id = Column(String, ForeignKey("plan_sessions.id", ondelete="SET NULL"), nullable=True)
     name = Column(String, nullable=False)
     scheduled_date = Column(String)
     actual_date = Column(String)
     status = Column(String, default="scheduled")
     notes = Column(Text)
     total_volume = Column(Float, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     # Fitbit session fields
     start_time = Column(DateTime(timezone=True), nullable=True)
@@ -100,8 +101,8 @@ class SessionExercise(Base):
     __tablename__ = "session_exercises"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_id = Column(String, ForeignKey("training_sessions.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False, index=True)
+    session_id = Column(String, ForeignKey("training_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="SET NULL"), nullable=True, index=True)
     order_index = Column(Integer, default=0)
     notes = Column(Text)
 
@@ -113,7 +114,7 @@ class ExerciseSet(Base):
     __tablename__ = "exercise_sets"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_exercise_id = Column(String, ForeignKey("session_exercises.id"), nullable=False, index=True)
+    session_exercise_id = Column(String, ForeignKey("session_exercises.id", ondelete="CASCADE"), nullable=False, index=True)
     set_number = Column(Integer, nullable=False)
     reps = Column(Integer)
     weight = Column(Float)
@@ -128,7 +129,7 @@ class HealthMetric(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    session_id = Column(String, ForeignKey("training_sessions.id"), nullable=True)
+    session_id = Column(String, ForeignKey("training_sessions.id", ondelete="CASCADE"), nullable=True)
     date = Column(String, nullable=False)  # yyyy-MM-dd
 
     # Sleep metrics
@@ -155,8 +156,8 @@ class VolumeHistory(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False, index=True)
-    session_id = Column(String, ForeignKey("training_sessions.id"), nullable=False, index=True)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(String, ForeignKey("training_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     total_volume = Column(Float, default=0)
     calculated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
@@ -180,7 +181,7 @@ class PlanSession(Base):
     __tablename__ = "plan_sessions"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    plan_id = Column(String, ForeignKey("plans.id"), nullable=False)
+    plan_id = Column(String, ForeignKey("plans.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     week_number = Column(Integer, default=1, server_default='1')
     order_index = Column(Integer, default=0)
@@ -195,8 +196,8 @@ class SuggestionLog(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
-    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id"), nullable=True)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
+    meso_cycle_id = Column(String, ForeignKey("meso_cycles.id", ondelete="SET NULL"), nullable=True)
 
     # What the algorithm saw
     previous_weight = Column(Float, nullable=True)
@@ -221,8 +222,8 @@ class PlanExercise(Base):
     __tablename__ = "plan_exercises"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    plan_session_id = Column(String, ForeignKey("plan_sessions.id"), nullable=False)
-    exercise_id = Column(String, ForeignKey("exercises.id"), nullable=False)
+    plan_session_id = Column(String, ForeignKey("plan_sessions.id", ondelete="CASCADE"), nullable=False)
+    exercise_id = Column(String, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
     order_index = Column(Integer, default=0)
     target_sets = Column(Integer, default=3)
     target_reps = Column(Integer, default=10)

@@ -1370,7 +1370,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                   <div className="space-y-1">
                     {preSummary.prs.map(pr => (
                       <div key={pr.exercise_name} className="flex items-center justify-between rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/40 px-3 py-1.5">
-                        <span className="text-xs font-medium truncate mr-2">{pr.exercise_name}</span>
+                        <span className="text-xs font-medium break-words whitespace-normal mr-2">{pr.exercise_name}</span>
                         <span className="text-xs tabular-nums text-muted-foreground shrink-0">
                           {pr.old_max > 0 ? `${pr.old_max} → ` : ''}<span className="text-yellow-600 dark:text-yellow-400 font-semibold">{pr.new_max} lbs</span>
                         </span>
@@ -1490,7 +1490,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                     <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
                       {se.exercise.muscle_group}
                     </span>
-                    <span className="font-semibold text-sm truncate">{se.exercise.name}</span>
+                    <span className="font-semibold text-sm break-words whitespace-normal">{se.exercise.name}</span>
                     <div className="ml-auto flex items-center gap-2 shrink-0">
                       <span className="text-xs tabular-nums font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">
                         {completedCount}/{totalCount}
@@ -1524,7 +1524,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
                           {se.exercise.muscle_group}
                         </span>
-                        <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        <span className="min-w-0 font-semibold text-sm break-words whitespace-normal">{se.exercise.name}</span>
                         {totalCount > 0 && (
                           <span className={cn(
                             'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
@@ -1542,7 +1542,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         <span className={cn('text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0', muscleColor(se.exercise.muscle_group))}>
                           {se.exercise.muscle_group}
                         </span>
-                        <span className="min-w-0 font-semibold text-sm truncate">{se.exercise.name}</span>
+                        <span className="min-w-0 font-semibold text-sm break-words whitespace-normal">{se.exercise.name}</span>
                         {totalCount > 0 && (
                           <span className={cn(
                             'text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded ml-1',
@@ -1862,7 +1862,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                     disabled={addExerciseMutation.isPending}
                     className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      <span className="font-medium text-[15px] break-words whitespace-normal">{ex.name}</span>
                       {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
                     </div>
                     <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
@@ -1908,7 +1908,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                     disabled={replaceExerciseMutation.isPending}
                     className="w-full text-left px-3 py-3.5 rounded-xl active:bg-muted transition-colors flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="font-medium text-[15px] truncate">{ex.name}</span>
+                      <span className="font-medium text-[15px] break-words whitespace-normal">{ex.name}</span>
                       {ex.category && <span className="text-xs text-muted-foreground capitalize">{ex.category}</span>}
                     </div>
                     <span className={cn('text-xs px-2.5 py-1 rounded-full shrink-0', muscleColor(ex.muscle_group))}>{ex.muscle_group}</span>
@@ -1922,7 +1922,7 @@ export function SessionDetailInner({ id }: { id: string }) {
       {replaceUndo && (
         <div className="fixed bottom-24 inset-x-0 z-50 flex justify-center px-4 pointer-events-none">
           <div className="pointer-events-auto flex items-center gap-3 bg-foreground text-background rounded-xl px-4 py-3 shadow-xl text-sm animate-in slide-in-from-bottom-2 duration-200">
-            <span className="font-medium truncate">Replaced <span className="opacity-60">{replaceUndo.oldExerciseName}</span></span>
+            <span className="font-medium break-words whitespace-normal">Replaced <span className="opacity-60">{replaceUndo.oldExerciseName}</span></span>
             <button
               onClick={() => undoReplaceMutation.mutate()}
               disabled={undoReplaceMutation.isPending}
@@ -2009,7 +2009,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                 {suggestions && (
                   <>
                     <span className="text-xs text-muted-foreground">/</span>
-                    <span className="text-xs text-muted-foreground truncate max-w-[120px]">{selectedPlanSessionName.split(' - ').pop()}</span>
+                    <span className="text-xs text-muted-foreground break-words whitespace-normal">{selectedPlanSessionName.split(' - ').pop()}</span>
                   </>
                 )}
               </div>

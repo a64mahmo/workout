@@ -122,10 +122,6 @@ async def suggest_weight(
 ):
     """
     RP-style hypertrophy suggestion engine with plan-aware periodisation.
-
-    When a session_id is provided and links to a plan, the algorithm uses the 
-    prescribed target RPE and reps. Otherwise, it follows the general 
-    meso-cycle arc (accumulation -> peak -> deload).
     """
     async with async_session() as session:
         # ── Try to resolve plan context from the current session ──────────
@@ -138,6 +134,7 @@ async def suggest_weight(
             ts_result = await session.execute(
                 select(TrainingSession.plan_session_id, TrainingSession.meso_cycle_id)
                 .where(TrainingSession.id == session_id)
+                .where(TrainingSession.user_id == user_id)
             )
             ts_row = ts_result.first()
 
@@ -150,15 +147,13 @@ async def suggest_weight(
                 ps_row = ps_result.first()
                 if ps_row:
                     plan_week_number = ps_row.week_number
-
-                    # Get total weeks in this plan
                     tw_result = await session.execute(
                         select(func.max(PlanSession.week_number))
                         .where(PlanSession.plan_id == ps_row.plan_id)
                     )
                     plan_total_weeks = tw_result.scalar() or plan_week_number
 
-                # Look up target RPE and reps for this exercise in this plan session
+                # Look up target RPE and reps
                 pe_result = await session.execute(
                     select(PlanExercise.target_rpe, PlanExercise.target_reps)
                     .where(PlanExercise.plan_session_id == ts_row.plan_session_id)
@@ -166,10 +161,9 @@ async def suggest_weight(
                 )
                 pe_row = pe_result.first()
                 if pe_row:
-                    plan_target_rpe = float(pe_row.target_rpe) if pe_row.target_rpe else None
-                    plan_target_reps = int(pe_row.target_reps) if pe_row.target_reps else None
+                    plan_target_rpe = float(pe_row.target_rpe) if pe_row.target_rpe is not None else None
+                    plan_target_reps = int(pe_row.target_reps) if pe_row.target_reps is not None else None
 
-            # Inherit meso_cycle_id from the session if not provided
             if not meso_cycle_id and ts_row and ts_row.meso_cycle_id:
                 meso_cycle_id = ts_row.meso_cycle_id
 
@@ -191,7 +185,7 @@ async def suggest_weight(
             .where(ExerciseSet.is_completed == True)
             .where(ExerciseSet.is_warmup == False)
             .where(ExerciseSet.weight > 0)
-            .order_by(TrainingSession.scheduled_date.desc())
+            .order_by(TrainingSession.scheduled_date.desc(), TrainingSession.created_at.desc(), ExerciseSet.set_number.desc())
         )
 
         if meso_cycle_id:
@@ -215,13 +209,12 @@ async def suggest_weight(
                 "volume_trend": "none",
                 "suggested_sets": 3,
                 "volume_directive": "Start at MEV (~3-4 working sets), prioritise technique",
-                # legacy
+                "estimated_1rm": None,
                 "average_weight": 0,
                 "suggestion": "No history - start light and build up",
                 "percentage": 100,
             }
 
-        # Group sets by session (OrderedDict preserves recency order)
         sessions_map: dict = OrderedDict()
         for row in rows:
             sid = row.session_id
@@ -230,6 +223,9 @@ async def suggest_weight(
             sessions_map[sid].append(row)
 
         session_ids = list(sessions_map.keys())
+        if not session_ids:
+             return { "previous_weight": 0, "suggested_weight": 0, "adjustment_reason": "No valid history found" }
+
         last_sets = sessions_map[session_ids[0]]
         last_stats = _session_stats(last_sets)
         prev_stats = _session_stats(sessions_map[session_ids[1]]) if len(session_ids) > 1 else None
@@ -252,10 +248,8 @@ async def suggest_weight(
                         if meso_obj.end_date:
                             end_d = date_type.fromisoformat(meso_obj.end_date)
                             meso_total_weeks = max(4, (end_d - meso_start).days // 7)
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError): pass
 
-            # Fallback: count distinct calendar weeks with sessions (recent 8 weeks)
             if meso_week is None:
                 from datetime import timedelta
                 today = date_type.today()
@@ -266,23 +260,17 @@ async def suggest_weight(
                     if d_str:
                         try:
                             d = date_type.fromisoformat(d_str)
-                            if d >= cutoff:
-                                distinct_weeks.add((d - cutoff).days // 7)
-                        except (ValueError, TypeError):
-                            pass
+                            if d >= cutoff: distinct_weeks.add((d - cutoff).days // 7)
+                        except (ValueError, TypeError): pass
                 meso_week = max(1, len(distinct_weeks)) if distinct_weeks else 1
 
         # ── Suggestion Calculation ────────────────────────────────────────────
-        if plan_target_rpe is not None and last_stats.top_reps:
-            # Plan-specific logic (e1RM-based)
-            target_reps = plan_target_reps or last_stats.top_reps
-            
-            # Compute e1RM estimate from last sets
+        if plan_target_rpe is not None:
+            target_reps = plan_target_reps if plan_target_reps is not None else (last_stats.top_reps or 10)
             e1rm_estimates = []
             for s in last_sets:
                 w, r = float(s.weight), int(s.reps) if s.reps else 0
-                if w <= 0 or r <= 0:
-                    continue
+                if w <= 0 or r <= 0: continue
                 if s.rpe is not None:
                     rir = 10.0 - float(s.rpe)
                     effective = r + rir
@@ -299,22 +287,14 @@ async def suggest_weight(
                 suggested_weight = _round_to_plate(suggested_weight)
 
                 week_label = f"Week {plan_week_number}/{plan_total_weeks}" if plan_week_number and plan_total_weeks else f"Week {plan_week_number}" if plan_week_number else ""
-                
-                # Compare to last session
                 diff = suggested_weight - last_stats.top_weight
-                if abs(diff) < 0.1:
-                    delta = "same as last session"
-                elif diff > 0:
-                    delta = f"+{_round_to_plate(diff)} lbs from last"
-                else:
-                    delta = f"{_round_to_plate(diff)} lbs from last"
+                if abs(diff) < 0.1: delta = "same as last session"
+                elif diff > 0: delta = f"+{_round_to_plate(diff)} lbs from last"
+                else: delta = f"{_round_to_plate(diff)} lbs from last"
 
                 effort_label = f"RPE {plan_target_rpe}"
                 reason = f"{week_label} · {effort_label} · {delta}" if week_label else f"{effort_label} · {delta}"
                 
-                # Volume autoregulation still useful for plans? 
-                # For now use the same heuristic from ProgressionService based on the plan's target RPE
-                # (We can pretend we are in 'intensification' phase if it's a plan)
                 phase = "plan"
                 suggested_sets = last_stats.set_count
                 if last_stats.avg_rpe is not None:
@@ -333,65 +313,42 @@ async def suggest_weight(
                     estimated_1rm=round(e1rm, 1)
                 )
             else:
-                # Fallback to general logic if no usable sets for e1RM
-                suggestion = ProgressionService.calculate_suggestion(
-                    last_stats, meso_week, meso_total_weeks
-                )
+                suggestion = ProgressionService.calculate_suggestion(last_stats, meso_week, meso_total_weeks)
         else:
-            # General RP logic
-            suggestion = ProgressionService.calculate_suggestion(
-                last_stats, meso_week, meso_total_weeks
-            )
+            suggestion = ProgressionService.calculate_suggestion(last_stats, meso_week, meso_total_weeks)
 
-        # ── Volume trend ──────────────────────────────────────────────────────
         vol_prev = prev_stats.volume if prev_stats else None
         vol_last = last_stats.volume
-        if vol_prev is None:
-            volume_trend = "no prior data"
-        elif vol_last > vol_prev * 1.05:
-            volume_trend = "increasing"
-        elif vol_last < vol_prev * 0.95:
-            volume_trend = "decreasing"
-        else:
-            volume_trend = "stable"
+        volume_trend = "no prior data" if vol_prev is None else "increasing" if vol_last > vol_prev * 1.05 else "decreasing" if vol_last < vol_prev * 0.95 else "stable"
 
         response = {
             "previous_weight": round(last_stats.top_weight, 1),
             "suggested_weight": suggestion.suggested_weight,
             "average_rpe": last_stats.avg_rpe,
             "adjustment_reason": suggestion.adjustment_reason,
-            # RP meso arc
             "meso_week": suggestion.meso_week,
             "meso_phase": suggestion.meso_phase,
             "meso_phase_label": suggestion.meso_phase_label,
             "target_rpe": suggestion.target_rpe,
-            # Volume
             "session_volume": round(vol_last, 1),
             "set_count": last_stats.set_count,
             "previous_volume": round(vol_prev, 1) if vol_prev is not None else None,
             "volume_trend": volume_trend,
-            # RP volume recommendation
             "suggested_sets": suggestion.suggested_sets,
             "volume_directive": suggestion.volume_directive,
             "estimated_1rm": suggestion.estimated_1rm,
-            # Legacy fields (API compatibility)
             "average_weight": round(last_stats.top_weight, 1),
             "suggestion": suggestion.adjustment_reason,
             "percentage": round(suggestion.suggested_weight / last_stats.top_weight * 100, 1) if last_stats.top_weight else 100,
         }
 
         log = SuggestionLog(
-            user_id=user_id,
-            exercise_id=exercise_id,
-            meso_cycle_id=meso_cycle_id,
-            previous_weight=round(last_stats.top_weight, 1),
-            average_rpe=last_stats.avg_rpe,
-            suggested_weight=suggestion.suggested_weight,
-            adjustment_reason=suggestion.adjustment_reason,
+            user_id=user_id, exercise_id=exercise_id, meso_cycle_id=meso_cycle_id,
+            previous_weight=round(last_stats.top_weight, 1), average_rpe=last_stats.avg_rpe,
+            suggested_weight=suggestion.suggested_weight, adjustment_reason=suggestion.adjustment_reason,
         )
         session.add(log)
         await session.commit()
-
         response["log_id"] = log.id
         return response
 
@@ -416,10 +373,8 @@ async def suggestion_history(
             .join(Exercise, SuggestionLog.exercise_id == Exercise.id)
             .where(SuggestionLog.user_id == user_id)
         )
-        if exercise_id:
-            q = q.where(SuggestionLog.exercise_id == exercise_id)
-        if meso_cycle_id:
-            q = q.where(SuggestionLog.meso_cycle_id == meso_cycle_id)
+        if exercise_id: q = q.where(SuggestionLog.exercise_id == exercise_id)
+        if meso_cycle_id: q = q.where(SuggestionLog.meso_cycle_id == meso_cycle_id)
         q = q.order_by(SuggestionLog.created_at.desc()).limit(limit)
 
         result = await session.execute(q)
@@ -459,15 +414,11 @@ async def record_outcome(
             .where(SuggestionLog.user_id == user_id)
         )
         log = result.scalar_one_or_none()
-        if not log:
-            raise HTTPException(status_code=404, detail="Suggestion log not found")
+        if not log: raise HTTPException(status_code=404, detail="Suggestion log not found")
 
-        if outcome.actual_weight is not None:
-            log.actual_weight = outcome.actual_weight
-        if outcome.actual_reps is not None:
-            log.actual_reps = outcome.actual_reps
-        if outcome.actual_rpe is not None:
-            log.actual_rpe = outcome.actual_rpe
+        if outcome.actual_weight is not None: log.actual_weight = outcome.actual_weight
+        if outcome.actual_reps is not None: log.actual_reps = outcome.actual_reps
+        if outcome.actual_rpe is not None: log.actual_rpe = outcome.actual_rpe
 
         await session.commit()
         return {"message": "Outcome recorded", "log_id": log_id}

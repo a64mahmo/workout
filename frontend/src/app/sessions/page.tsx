@@ -310,7 +310,7 @@ function SessionCard({
 
           {/* Info */}
           <div className="flex-1 min-w-0 space-y-1">
-            <div className="font-semibold text-sm truncate">{session.name}</div>
+            <div className="font-semibold text-sm break-words whitespace-normal">{session.name}</div>
 
             {/* Sub-row: counts + muscle dots + HR */}
             <div className="flex items-center gap-3 flex-wrap">
