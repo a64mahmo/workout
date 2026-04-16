@@ -6,10 +6,10 @@ from pydantic import BaseModel
 from datetime import date as date_type
 from collections import OrderedDict
 from ..database import async_session
-from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog, MesoCycle, VolumeHistory
+from ..models import Exercise, TrainingSession, SessionExercise, ExerciseSet, SuggestionLog, MesoCycle, VolumeHistory, PlanSession, PlanExercise
 from ..deps import get_current_user_id
 
-from ..services.progression import ProgressionService, SessionStats
+from ..services.progression import ProgressionService, SessionStats, SuggestionResult
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
@@ -85,32 +85,95 @@ async def suggest_exercises(user_id: str = Depends(get_current_user_id)):
         return suggestions
 
 
+def _epley_e1rm(weight: float, reps: int) -> float:
+    """Estimate 1RM using Epley formula.  weight × (1 + reps/30)."""
+    if reps <= 0 or weight <= 0:
+        return weight
+    if reps == 1:
+        return weight
+    return weight * (1 + reps / 30.0)
+
+
+def _weight_for_rpe(e1rm: float, target_reps: int, target_rpe: float) -> float:
+    """Back-calculate the working weight that should produce a given RPE at target reps.
+
+    RPE maps to Reps-In-Reserve (RIR):  RIR = 10 - RPE
+    The lifter can theoretically do (target_reps + RIR) total reps at that weight.
+    We invert Epley:  weight = e1RM / (1 + effective_reps / 30)
+    """
+    rir = 10.0 - target_rpe
+    effective_reps = target_reps + rir
+    if effective_reps <= 0:
+        return e1rm
+    return e1rm / (1 + effective_reps / 30.0)
+
+
+def _round_to_plate(weight: float) -> float:
+    """Round to nearest 2.5 lbs for practical plate loading."""
+    return round(round(weight / 2.5) * 2.5, 1)
+
+
 @router.get("/weight")
 async def suggest_weight(
     user_id: str = Depends(get_current_user_id),
     exercise_id: str = Query(...),
     meso_cycle_id: str = Query(None),
+    session_id: str = Query(None),
 ):
     """
-    RP-style hypertrophy suggestion engine.
+    RP-style hypertrophy suggestion engine with plan-aware periodisation.
 
-    Progression arc (default 4-week meso):
-      Week 1  - Light start, RPE ~7  (3 RIR) - build base volume
-      Week 2  - Accumulate,  RPE ~7.5 (2.5 RIR) - add sets
-      Week 3  - Intensify,   RPE ~8.5 (1.5 RIR) - add weight
-      Week 4  - Peak,        RPE ~9.5 (0.5 RIR) - push to limit
-      Deload  - ~65% weight, ~50% volume - recover and reset
-
-    Volume autoregulation (RP feedback proxy via RPE):
-      Last RPE < 7.0  → add 2 sets next week (too easy)
-      Last RPE 7–7.5  → add 1 set next week
-      Last RPE 7.5–9  → maintain or +1 set in accumulation
-      Last RPE ≥ 9    → hold or cut 1 set (approaching MRV)
-
-    Weight adjustment: 1 RPE unit ≈ 2.5% of working weight.
-    Deload triggered when max_rpe ≥ 9.5 OR meso week exceeds total meso weeks.
+    When a session_id is provided and links to a plan, the algorithm uses the 
+    prescribed target RPE and reps. Otherwise, it follows the general 
+    meso-cycle arc (accumulation -> peak -> deload).
     """
     async with async_session() as session:
+        # ── Try to resolve plan context from the current session ──────────
+        plan_target_rpe = None
+        plan_target_reps = None
+        plan_week_number = None
+        plan_total_weeks = None
+
+        if session_id:
+            ts_result = await session.execute(
+                select(TrainingSession.plan_session_id, TrainingSession.meso_cycle_id)
+                .where(TrainingSession.id == session_id)
+            )
+            ts_row = ts_result.first()
+
+            if ts_row and ts_row.plan_session_id:
+                # Get week number from PlanSession
+                ps_result = await session.execute(
+                    select(PlanSession.week_number, PlanSession.plan_id)
+                    .where(PlanSession.id == ts_row.plan_session_id)
+                )
+                ps_row = ps_result.first()
+                if ps_row:
+                    plan_week_number = ps_row.week_number
+
+                    # Get total weeks in this plan
+                    tw_result = await session.execute(
+                        select(func.max(PlanSession.week_number))
+                        .where(PlanSession.plan_id == ps_row.plan_id)
+                    )
+                    plan_total_weeks = tw_result.scalar() or plan_week_number
+
+                # Look up target RPE and reps for this exercise in this plan session
+                pe_result = await session.execute(
+                    select(PlanExercise.target_rpe, PlanExercise.target_reps)
+                    .where(PlanExercise.plan_session_id == ts_row.plan_session_id)
+                    .where(PlanExercise.exercise_id == exercise_id)
+                )
+                pe_row = pe_result.first()
+                if pe_row:
+                    plan_target_rpe = float(pe_row.target_rpe) if pe_row.target_rpe else None
+                    plan_target_reps = int(pe_row.target_reps) if pe_row.target_reps else None
+
+            # Inherit meso_cycle_id from the session if not provided
+            if not meso_cycle_id and ts_row and ts_row.meso_cycle_id:
+                meso_cycle_id = ts_row.meso_cycle_id
+
+        # ── Fetch exercise history ────────────────────────────────────────
         base = (
             select(
                 ExerciseSet.weight,
@@ -143,9 +206,9 @@ async def suggest_weight(
                 "suggested_weight": 0,
                 "average_rpe": None,
                 "adjustment_reason": "No history - start light (RPE 6-7) and build up",
-                "meso_week": 1,
+                "meso_week": plan_week_number or 1,
                 "meso_phase": "accumulation",
-                "target_rpe": 7.0,
+                "target_rpe": plan_target_rpe or 7.0,
                 "session_volume": 0,
                 "set_count": 0,
                 "previous_volume": None,
@@ -167,56 +230,117 @@ async def suggest_weight(
             sessions_map[sid].append(row)
 
         session_ids = list(sessions_map.keys())
-        last_stats = _session_stats(sessions_map[session_ids[0]])
+        last_sets = sessions_map[session_ids[0]]
+        last_stats = _session_stats(last_sets)
         prev_stats = _session_stats(sessions_map[session_ids[1]]) if len(session_ids) > 1 else None
 
-        last_weight = last_stats.top_weight
-        avg_rpe = last_stats.avg_rpe
-        max_rpe = last_stats.max_rpe
-        vol_last = last_stats.volume
-        set_count = last_stats.set_count
-
         # ── Meso week detection ───────────────────────────────────────────────
-        meso_week = None
-        meso_total_weeks = 4  # default 4-week meso
+        meso_week = plan_week_number
+        meso_total_weeks = plan_total_weeks or 4
 
-        if meso_cycle_id and last_stats.date:
-            meso_result = await session.execute(
-                select(MesoCycle).where(MesoCycle.id == meso_cycle_id)
-            )
-            meso_obj = meso_result.scalar_one_or_none()
-            if meso_obj and meso_obj.start_date:
-                try:
-                    meso_start = date_type.fromisoformat(meso_obj.start_date)
-                    last_d = date_type.fromisoformat(last_stats.date)
-                    meso_week = max(1, (last_d - meso_start).days // 7 + 1)
-                    if meso_obj.end_date:
-                        end_d = date_type.fromisoformat(meso_obj.end_date)
-                        meso_total_weeks = max(4, (end_d - meso_start).days // 7)
-                except (ValueError, TypeError):
-                    pass
-
-        # Fallback: count distinct calendar weeks with sessions (recent 8 weeks)
         if meso_week is None:
-            from datetime import timedelta
-            today = date_type.today()
-            cutoff = today - timedelta(weeks=8)
-            distinct_weeks: set = set()
-            for sets in sessions_map.values():
-                d_str = sets[0].scheduled_date
-                if d_str:
+            if meso_cycle_id and last_stats.date:
+                meso_result = await session.execute(
+                    select(MesoCycle).where(MesoCycle.id == meso_cycle_id)
+                )
+                meso_obj = meso_result.scalar_one_or_none()
+                if meso_obj and meso_obj.start_date:
                     try:
-                        d = date_type.fromisoformat(d_str)
-                        if d >= cutoff:
-                            distinct_weeks.add((d - cutoff).days // 7)
+                        meso_start = date_type.fromisoformat(meso_obj.start_date)
+                        last_d = date_type.fromisoformat(last_stats.date)
+                        meso_week = max(1, (last_d - meso_start).days // 7 + 1)
+                        if meso_obj.end_date:
+                            end_d = date_type.fromisoformat(meso_obj.end_date)
+                            meso_total_weeks = max(4, (end_d - meso_start).days // 7)
                     except (ValueError, TypeError):
                         pass
-            meso_week = max(1, len(distinct_weeks)) if distinct_weeks else 1
 
-        # ── Phase configuration & Suggestion Calculation ──────────────────────
-        suggestion = ProgressionService.calculate_suggestion(
-            last_stats, meso_week, meso_total_weeks
-        )
+            # Fallback: count distinct calendar weeks with sessions (recent 8 weeks)
+            if meso_week is None:
+                from datetime import timedelta
+                today = date_type.today()
+                cutoff = today - timedelta(weeks=8)
+                distinct_weeks: set = set()
+                for sets in sessions_map.values():
+                    d_str = sets[0].scheduled_date
+                    if d_str:
+                        try:
+                            d = date_type.fromisoformat(d_str)
+                            if d >= cutoff:
+                                distinct_weeks.add((d - cutoff).days // 7)
+                        except (ValueError, TypeError):
+                            pass
+                meso_week = max(1, len(distinct_weeks)) if distinct_weeks else 1
+
+        # ── Suggestion Calculation ────────────────────────────────────────────
+        if plan_target_rpe is not None and last_stats.top_reps:
+            # Plan-specific logic (e1RM-based)
+            target_reps = plan_target_reps or last_stats.top_reps
+            
+            # Compute e1RM estimate from last sets
+            e1rm_estimates = []
+            for s in last_sets:
+                w, r = float(s.weight), int(s.reps) if s.reps else 0
+                if w <= 0 or r <= 0:
+                    continue
+                if s.rpe is not None:
+                    rir = 10.0 - float(s.rpe)
+                    effective = r + rir
+                    e1rm_estimates.append(w * (1 + effective / 30.0))
+                else:
+                    e1rm_estimates.append(_epley_e1rm(w, r))
+
+            if e1rm_estimates:
+                e1rm_estimates.sort()
+                mid = len(e1rm_estimates) // 2
+                e1rm = e1rm_estimates[mid] if len(e1rm_estimates) % 2 else (e1rm_estimates[mid - 1] + e1rm_estimates[mid]) / 2
+
+                suggested_weight = _weight_for_rpe(e1rm, target_reps, plan_target_rpe)
+                suggested_weight = _round_to_plate(suggested_weight)
+
+                week_label = f"Week {plan_week_number}/{plan_total_weeks}" if plan_week_number and plan_total_weeks else f"Week {plan_week_number}" if plan_week_number else ""
+                
+                # Compare to last session
+                diff = suggested_weight - last_stats.top_weight
+                if abs(diff) < 0.1:
+                    delta = "same as last session"
+                elif diff > 0:
+                    delta = f"+{_round_to_plate(diff)} lbs from last"
+                else:
+                    delta = f"{_round_to_plate(diff)} lbs from last"
+
+                effort_label = f"RPE {plan_target_rpe}"
+                reason = f"{week_label} · {effort_label} · {delta}" if week_label else f"{effort_label} · {delta}"
+                
+                # Volume autoregulation still useful for plans? 
+                # For now use the same heuristic from ProgressionService based on the plan's target RPE
+                # (We can pretend we are in 'intensification' phase if it's a plan)
+                phase = "plan"
+                suggested_sets = last_stats.set_count
+                if last_stats.avg_rpe is not None:
+                    if last_stats.avg_rpe < 7.5: suggested_sets += 1
+                    elif last_stats.avg_rpe >= 9.0: suggested_sets = max(1, suggested_sets - 1)
+                
+                suggestion = SuggestionResult(
+                    suggested_weight=suggested_weight,
+                    adjustment_reason=reason,
+                    meso_week=meso_week,
+                    meso_phase=phase,
+                    meso_phase_label="Programmed" if not week_label else f"Programmed ({week_label})",
+                    target_rpe=plan_target_rpe,
+                    suggested_sets=min(suggested_sets, 12),
+                    volume_directive="Follow plan volume"
+                )
+            else:
+                # Fallback to general logic if no usable sets for e1RM
+                suggestion = ProgressionService.calculate_suggestion(
+                    last_stats, meso_week, meso_total_weeks
+                )
+        else:
+            # General RP logic
+            suggestion = ProgressionService.calculate_suggestion(
+                last_stats, meso_week, meso_total_weeks
+            )
 
         # ── Volume trend ──────────────────────────────────────────────────────
         vol_prev = prev_stats.volume if prev_stats else None
@@ -320,7 +444,7 @@ async def suggestion_history(
 
 
 @router.patch("/weight/history/{log_id}")
-async def record_suggestion_outcome(
+async def record_outcome(
     log_id: str,
     outcome: SuggestionOutcome,
     user_id: str = Depends(get_current_user_id),
