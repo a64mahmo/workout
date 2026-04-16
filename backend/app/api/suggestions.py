@@ -329,7 +329,8 @@ async def suggest_weight(
                     meso_phase_label="Programmed" if not week_label else f"Programmed ({week_label})",
                     target_rpe=plan_target_rpe,
                     suggested_sets=min(suggested_sets, 12),
-                    volume_directive="Follow plan volume"
+                    volume_directive="Follow plan volume",
+                    estimated_1rm=round(e1rm, 1)
                 )
             else:
                 # Fallback to general logic if no usable sets for e1RM
@@ -372,6 +373,7 @@ async def suggest_weight(
             # RP volume recommendation
             "suggested_sets": suggestion.suggested_sets,
             "volume_directive": suggestion.volume_directive,
+            "estimated_1rm": suggestion.estimated_1rm,
             # Legacy fields (API compatibility)
             "average_weight": round(last_stats.top_weight, 1),
             "suggestion": suggestion.adjustment_reason,

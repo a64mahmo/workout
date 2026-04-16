@@ -837,6 +837,7 @@ export function SessionDetailInner({ id }: { id: string }) {
               session_volume: number;
               suggested_sets: number;
               volume_trend: string;
+              estimated_1rm: number | null;
             },
           }))
         )
@@ -859,6 +860,7 @@ export function SessionDetailInner({ id }: { id: string }) {
       session_volume: number;
       suggested_sets: number;
       volume_trend: string;
+      estimated_1rm: number | null;
     }> = {};
     for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
     return map;
@@ -1630,6 +1632,12 @@ export function SessionDetailInner({ id }: { id: string }) {
                                   
                                   <span className="ml-1.5 font-medium text-muted-foreground shrink-0">@ RPE {suggestion.target_rpe}</span>
                                   
+                                  {suggestion.estimated_1rm && (
+                                    <span className="ml-1.5 px-1 rounded bg-muted text-[10px] text-muted-foreground font-medium shrink-0">
+                                      e1RM: {suggestion.estimated_1rm}
+                                    </span>
+                                  )}
+
                                   {isDeload ? (
                                     <span className="ml-1.5 px-1 rounded bg-blue-100 dark:bg-blue-900/30 text-[10px] text-blue-700 dark:text-blue-300 font-bold uppercase tracking-wider shrink-0">Deload</span>
                                   ) : (
