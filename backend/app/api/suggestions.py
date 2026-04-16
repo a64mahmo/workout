@@ -390,7 +390,7 @@ async def suggestion_history(
                 "previous_weight": row.SuggestionLog.previous_weight,
                 "suggested_weight": row.SuggestionLog.suggested_weight,
                 "average_rpe": row.SuggestionLog.average_rpe,
-                "adjustment_reason": row.adjustment_reason,
+                "adjustment_reason": row.SuggestionLog.adjustment_reason,
                 "actual_weight": row.SuggestionLog.actual_weight,
                 "actual_reps": row.SuggestionLog.actual_reps,
                 "actual_rpe": row.SuggestionLog.actual_rpe,
