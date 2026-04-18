@@ -41,12 +41,7 @@ class ProgressionService:
         # Fractional position in meso: 0.0 = start, 1.0 = end
         position = (week - 1) / max(total_weeks - 1, 1)
 
-        # Only trigger deload from peak RPE if actually in peak zone
-        just_hit_peak = (
-            max_rpe is not None
-            and max_rpe >= 9.5
-            and position >= 0.85
-        )
+        just_hit_peak = max_rpe is not None and max_rpe >= 9.5
         if just_hit_peak:
             return ProgressionPhase(
                 phase="deload",
