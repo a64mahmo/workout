@@ -816,6 +816,9 @@ export function SessionDetailInner({ id }: { id: string }) {
   const [collapsedExercises, setCollapsedExercises] = useState<Set<string>>(
     new Set(),
   );
+  const [collapsingExercises, setCollapsingExercises] = useState<Set<string>>(
+    new Set(),
+  );
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfettiActive, setIsConfettiActive] = useState(false);
@@ -1084,6 +1087,19 @@ export function SessionDetailInner({ id }: { id: string }) {
 
   // Auto-collapse exercises when all sets are completed
   const userExpandedRef = useRef<Set<string>>(new Set());
+
+  const collapseExercise = useCallback((seId: string) => {
+    setCollapsingExercises((prev) => new Set(prev).add(seId));
+    setTimeout(() => {
+      setCollapsedExercises((prev) => new Set(prev).add(seId));
+      setCollapsingExercises((prev) => {
+        const next = new Set(prev);
+        next.delete(seId);
+        return next;
+      });
+    }, 280);
+  }, []);
+
   useEffect(() => {
     if (!session) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -1093,12 +1109,11 @@ export function SessionDetailInner({ id }: { id: string }) {
       if (
         allDone &&
         !collapsedExercises.has(se.id) &&
+        !collapsingExercises.has(se.id) &&
         !userExpandedRef.current.has(se.id)
       ) {
         timers.push(
-          setTimeout(() => {
-            setCollapsedExercises((prev) => new Set(prev).add(se.id));
-          }, 600),
+          setTimeout(() => collapseExercise(se.id), 600),
         );
       }
       // Un-collapse if a set was unchecked
@@ -2135,7 +2150,12 @@ export function SessionDetailInner({ id }: { id: string }) {
                       </button>
                     ) : (
                       /* ── Expanded view — full card ── */
-                      <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div className={cn(
+                        "duration-[280ms]",
+                        collapsingExercises.has(se.id)
+                          ? "animate-out fade-out slide-out-to-top-2"
+                          : "animate-in fade-in slide-in-from-top-2",
+                      )}>
                         {/* Exercise header — mobile-first: name row + metrics row with dedicated icon buttons */}
                         <div className="border-b border-border/50">
                           {/* Row 1 — name region (tap to collapse when all done) + icon buttons */}
@@ -2147,9 +2167,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                                 aria-label={`Collapse ${se.exercise.name}`}
                                 onClick={() => {
                                   userExpandedRef.current.delete(se.id);
-                                  setCollapsedExercises((prev) =>
-                                    new Set(prev).add(se.id),
-                                  );
+                                  collapseExercise(se.id);
                                 }}
                                 className="flex-1 min-w-0 flex items-center gap-2 text-left -ml-1 px-1 py-1 rounded-md hover:bg-muted/40 active:bg-muted/60 transition-colors"
                               >

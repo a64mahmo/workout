@@ -16,11 +16,17 @@ fi
 source venv/bin/activate
 pip install -q -r requirements.txt 2>/dev/null || true
 
-# Load .env variables
+# Load .env then let .env.local override (keeps prod credentials out of local dev)
 if [ -f ".env" ]; then
     set -a
     source .env
     set +a
+fi
+if [ -f ".env.local" ]; then
+    set -a
+    source .env.local
+    set +a
+    echo "⚠  Loaded .env.local overrides (local dev mode)"
 fi
 
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
