@@ -2,6 +2,7 @@ import asyncio
 from logging.config import fileConfig
 import os
 import sys
+from dotenv import load_dotenv
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
@@ -11,6 +12,9 @@ from alembic import context
 
 # Add the project root to sys.path so we can import 'app'
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from app.database import Base
 from app.models import (

@@ -28,15 +28,20 @@ class SuggestionResult(BaseModel):
     target_rpe: float
     suggested_sets: int
     volume_directive: str
+    estimated_1rm: Optional[float] = None
 
 class ProgressionService:
     @staticmethod
-    def get_phase_config(week: int, total_weeks: int, just_hit_peak: bool) -> ProgressionPhase:
+    def get_phase_config(week: int, total_weeks: int, max_rpe: float | None = None) -> ProgressionPhase:
         """
         Returns RP phase config based on meso week position.
         Arc: accumulation (W1) → intensification (W2-3) → peak (W4) → deload
         Scales to any meso length by using fractional position.
         """
+        # Fractional position in meso: 0.0 = start, 1.0 = end
+        position = (week - 1) / max(total_weeks - 1, 1)
+
+        just_hit_peak = max_rpe is not None and max_rpe >= 9.5
         if just_hit_peak:
             return ProgressionPhase(
                 phase="deload",
@@ -45,9 +50,6 @@ class ProgressionService:
                 weight_modifier=0.65,
                 volume_directive="Drop to ~50% of peak volume and ~65% of peak weight",
             )
-
-        # Fractional position in meso: 0.0 = start, 1.0 = end
-        position = (week - 1) / max(total_weeks - 1, 1)
 
         if week > total_weeks:
             return ProgressionPhase(
@@ -104,8 +106,7 @@ class ProgressionService:
         max_rpe = last_stats.max_rpe
         set_count = last_stats.set_count
 
-        just_hit_peak = max_rpe is not None and max_rpe >= 9.5
-        phase_cfg = cls.get_phase_config(meso_week, meso_total_weeks, just_hit_peak)
+        phase_cfg = cls.get_phase_config(meso_week, meso_total_weeks, max_rpe)
         
         phase = phase_cfg.phase
         target_rpe = phase_cfg.target_rpe
@@ -116,18 +117,20 @@ class ProgressionService:
             modifier = phase_cfg.weight_modifier or 0.65
             suggested = last_weight * modifier
             parts = [f"DELOAD"]
-            if just_hit_peak:
+            if max_rpe is not None and max_rpe >= 9.5:
                 parts.append(f"peak RPE {max_rpe} reached")
             parts.append(f"reset to {round(suggested, 1)} lbs ({int(modifier*100)}% of {last_weight} lbs)")
             parts.append(f"target RPE {target_rpe}")
 
         elif avg_rpe is None:
-            # No RPE logged - simple 2.5 lb progression
-            suggested = last_weight + 2.5
+            # No RPE logged - percentage-based bump (~2.5% of working weight)
+            bump = round(round(last_weight * 0.025 / 2.5) * 2.5, 1)
+            bump = max(bump, 2.5)  # minimum 2.5 lbs
+            suggested = last_weight + bump
             parts = [
                 f"Week {meso_week} {phase}",
                 f"target RPE {target_rpe}",
-                "no RPE logged - add 2.5 lbs and track effort next session",
+                f"no RPE logged - add {bump} lbs ({round(bump/last_weight*100, 1)}%) and track effort next session",
             ]
 
         else:
@@ -158,9 +161,7 @@ class ProgressionService:
                     f"reduce {abs(delta_lbs)} lbs ({round(abs(pct_change)*100, 1)}%)",
                 ]
 
-        if phase != "deload" and avg_rpe is not None:
-            pass  # already rounded above
-        else:
+        if not (phase != "deload" and avg_rpe is not None):
             suggested = round(round(suggested / 2.5) * 2.5, 1)
         
         reason = " | ".join(parts)
@@ -174,12 +175,25 @@ class ProgressionService:
             suggested_sets = set_count + 2
         elif avg_rpe < 7.5:
             suggested_sets = set_count + 1
-        elif avg_rpe < 9.0:
+        elif avg_rpe < 8.5:
             suggested_sets = set_count + 1 if phase == "accumulation" else set_count
+        elif avg_rpe < 9.0:
+            suggested_sets = set_count + 1 if phase == "accumulation" else max(1, set_count - 1) if phase == "intensification" else set_count
         else:
-            suggested_sets = max(1, set_count - 1) if phase == "peak" else set_count
+            suggested_sets = max(1, set_count - 1) if phase in ("peak", "intensification") else set_count
 
         suggested_sets = min(suggested_sets, 12)
+
+        # Estimate 1RM from top set using Epley
+        estimated_1rm = None
+        if last_stats.top_weight > 0 and last_stats.top_reps and last_stats.top_reps > 0:
+            if last_stats.top_reps == 1:
+                estimated_1rm = last_stats.top_weight
+            else:
+                effective_reps = last_stats.top_reps
+                if max_rpe is not None:
+                    effective_reps += (10.0 - max_rpe)  # add RIR
+                estimated_1rm = round(last_stats.top_weight * (1 + effective_reps / 30.0), 1)
 
         return SuggestionResult(
             suggested_weight=suggested,
@@ -189,5 +203,6 @@ class ProgressionService:
             meso_phase_label=phase_cfg.label,
             target_rpe=target_rpe,
             suggested_sets=suggested_sets,
-            volume_directive=volume_directive
+            volume_directive=volume_directive,
+            estimated_1rm=estimated_1rm,
         )

@@ -165,7 +165,10 @@
 
 ### Suggestions
 - `GET /api/suggestions/exercises?muscle_group={group}` - Suggest exercises based on volume history
-- `GET /api/suggestions/weight?exercise_id={id}` - Suggest weight based on previous performance
+- `GET /api/suggestions/weight?exercise_id={id}&session_id={id}&meso_cycle_id={id}` - Suggest weight (e1RM-based when plan context available, RPE heuristic fallback)
+- `GET /api/suggestions/weight/history?exercise_id={id}&meso_cycle_id={id}` - Past suggestion logs
+- `PATCH /api/suggestions/weight/history/{log_id}` - Record what was actually lifted after a suggestion
+- `GET /api/suggestions/muscle-groups` - All-time volume per muscle group
 
 ## 5. Frontend Pages
 
@@ -195,22 +198,76 @@
 - Exercise suggestions based on volume
 - Weight recommendations per exercise
 
-## 6. Volume-Based Suggestions Algorithm
+## 6. Suggestions Algorithm
 
 ### Exercise Suggestion Logic
-1. Query volume_history for user's top exercises by total volume (last 30 days)
+1. Query volume_history for user's top exercises by total volume (all-time, from completed sets)
 2. Calculate volume per muscle group
 3. Suggest exercises for underworked muscle groups
 4. Mix of compound and isolation exercises
 
 ### Weight Suggestion Logic
-1. Get last 5 completed sessions for the exercise
-2. Calculate average weight used at each rep range
-3. Suggest weight based on:
-   - If increasing: suggest 2.5-5% increase
-   - If maintaining: suggest same weight
-   - If deload week: suggest 60-70% of working weight
-4. Factor in RPE - if average RPE > 8, suggest deload
+
+The weight suggestion endpoint (`GET /api/suggestions/weight`) uses two strategies depending on
+whether the current session is linked to a plan with per-exercise RPE targets.
+
+#### Strategy 1: e1RM + Week-Aware RPE (when plan context is available)
+
+When a `session_id` is provided and the session links to a `PlanSession` → `PlanExercise`
+with a `target_rpe` (and optionally `target_reps`), the algorithm:
+
+1. **Looks up the plan context** — resolves `PlanExercise.target_rpe` and `target_reps`
+   for this exercise in the current week, plus the week number and total weeks in the meso.
+2. **Estimates e1RM** from the most recent completed session's working sets using the
+   Epley formula, adjusted for RPE when logged:
+   - With RPE: `e1RM = weight × (1 + (reps + RIR) / 30)` where `RIR = 10 − RPE`
+   - Without RPE: `e1RM = weight × (1 + reps / 30)`
+   - Uses the **median** across all working sets for robustness against outliers.
+3. **Back-calculates the target weight** for the prescribed RPE and rep count:
+   - `RIR = 10 − target_RPE`
+   - `effective_reps = target_reps + RIR`
+   - `suggested_weight = e1RM / (1 + effective_reps / 30)`
+4. **Rounds to nearest 2.5 lbs** for practical plate loading.
+
+This means the suggestion naturally scales across weeks of a meso cycle:
+- **Week 1 (RPE 7, 3 RIR)** → lighter weight, more reps in reserve
+- **Week 3 (RPE 8.5, 1.5 RIR)** → heavier, pushing closer to failure
+- **Week 4 (RPE 9, 1 RIR)** → near-max effort
+- **Deload (RPE 6, 4 RIR)** → noticeably lighter for recovery
+
+#### Strategy 2: RPE-Threshold Heuristic (fallback)
+
+When no plan context is available (no `session_id`, or session not linked to a plan), the
+algorithm falls back to the original heuristic based on the most recent session's average RPE:
+
+| Avg RPE    | RIR   | Action                              |
+|------------|-------|-------------------------------------|
+| No RPE     | —     | Compare to prior session: +2.5 if improving/stalled, hold otherwise |
+| < 7        | > 3   | +5.0 lbs (too easy)                 |
+| 7 – 8      | 2–3   | +2.5 lbs (optimal hypertrophy zone) |
+| 8 – 9      | 1–2   | +2.5 lbs (solid effort)             |
+| 9 – 9.5    | 0.5–1 | Hold weight, aim for more reps      |
+| ≥ 9.5      | < 0.5 | −5% deload (recover quality reps)   |
+
+#### API Parameters
+
+| Param          | Required | Description |
+|----------------|----------|-------------|
+| `exercise_id`  | Yes      | The exercise to suggest weight for |
+| `meso_cycle_id`| No       | Restrict history to this meso cycle |
+| `session_id`   | No       | Current session — used to resolve plan context (week, target RPE/reps) |
+
+#### Response Fields
+
+| Field              | Description |
+|--------------------|-------------|
+| `suggested_weight` | The recommended working weight (rounded to 2.5 lbs) |
+| `previous_weight`  | Top-set weight from the most recent completed session |
+| `average_rpe`      | Average RPE of last session's working sets |
+| `adjustment_reason`| Human-readable explanation of the suggestion |
+| `week_number`      | Current week in the plan (null if no plan context) |
+| `total_weeks`      | Total weeks in the plan (null if no plan context) |
+| `target_rpe`       | The plan's prescribed RPE for this exercise this week (null if no plan) |
 
 ## 7. UI Components (chadcn/ui)
 

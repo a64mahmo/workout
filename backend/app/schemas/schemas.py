@@ -98,8 +98,9 @@ class SessionCreate(BaseModel):
     name: str
     meso_cycle_id: Optional[str] = None
     micro_cycle_id: Optional[str] = None
+    plan_session_id: Optional[str] = None
     scheduled_date: Optional[str] = None
-    status: str = "scheduled"
+    status: Optional[str] = "scheduled"
     notes: Optional[str] = None
 
 class HealthMetricBase(BaseModel):
@@ -121,6 +122,9 @@ class HealthMetricResponse(HealthMetricBase):
 
 class SessionUpdate(BaseModel):
     name: Optional[str] = None
+    meso_cycle_id: Optional[str] = None
+    micro_cycle_id: Optional[str] = None
+    plan_session_id: Optional[str] = None
     scheduled_date: Optional[str] = None
     actual_date: Optional[str] = None
     status: Optional[str] = None
@@ -156,6 +160,9 @@ class SessionExerciseResponse(BaseModel):
 class SessionResponse(BaseModel):
     id: str
     user_id: str
+    meso_cycle_id: Optional[str] = None
+    micro_cycle_id: Optional[str] = None
+    plan_session_id: Optional[str] = None
     name: str
     scheduled_date: Optional[str] = None
     actual_date: Optional[str] = None

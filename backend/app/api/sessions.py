@@ -20,8 +20,6 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 @router.post("/sync-volume")
 async def sync_volume(user_id: str = Depends(get_current_user_id)):
     """Manually trigger a volume history backfill for the current user."""
-    # In a real production app, we might want to scope this to just the current user
-    # but our migrate_volume_history function is safe to run globally as it's idempotent.
     try:
         await migrate_volume_history()
         return {"message": "Volume history synchronization complete"}
@@ -66,8 +64,9 @@ async def create_session(session: SessionCreate, user_id: str = Depends(get_curr
         name=session.name,
         meso_cycle_id=session.meso_cycle_id,
         micro_cycle_id=session.micro_cycle_id,
+        plan_session_id=session.plan_session_id,
         scheduled_date=session.scheduled_date,
-        status=session.status or "Scheduled",
+        status=session.status or "scheduled",
         notes=session.notes
     )
     db.add(new_session)
@@ -116,16 +115,9 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not db_session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Load session exercises to delete their sets first
-    result = await db.execute(
-        select(SessionExercise).where(SessionExercise.session_id == session_id)
-    )
-    for se in result.scalars().all():
-        await db.execute(sa_delete(ExerciseSet).where(ExerciseSet.session_exercise_id == se.id))
-
-    await db.execute(sa_delete(SessionExercise).where(SessionExercise.session_id == session_id))
     await db.execute(sa_delete(VolumeHistory).where(VolumeHistory.session_id == session_id))
     await db.execute(sa_delete(HealthMetric).where(HealthMetric.session_id == session_id))
+    # SessionExercise and ExerciseSet have cascade delete from TrainingSession
     await db.delete(db_session)
     await db.commit()
     return {"message": "Session deleted"}

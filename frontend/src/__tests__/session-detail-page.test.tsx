@@ -26,10 +26,11 @@ import {
   fireEvent,
   waitFor,
   within,
+  act,
 } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionDetailInner } from '@/app/sessions/[id]/page';
+import SessionDetailPage, { SessionDetailInner } from '@/app/sessions/[id]/page';
 import type { TrainingSession, SessionExercise, ExerciseSet, Exercise } from '@/types';
 
 // ─── mocks ──────────────────────────────────────────────────────────────────
