@@ -68,5 +68,4 @@ htmlcov/
 .cache/
 .parcel-cache/
 .stylelintcache
-
 *.csv
