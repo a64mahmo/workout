@@ -8,7 +8,7 @@
   //
   // Top level = local dev (`wrangler dev`). `--env staging` / `--env production`
   // for deploys. Bindings and vars do not inherit, so each env repeats them.
-  "name": "workout-tracker-dev",
+  "name": "workout-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": [
@@ -69,7 +69,7 @@
   // local -> .dev.vars ; deployed -> `wrangler secret put <NAME> --env <env>`
   "env": {
     "staging": {
-      "name": "workout-tracker-staging",
+      "name": "workout-staging",
       "routes": [
         {
           "pattern": "staging.workout.the-desk.ca",
