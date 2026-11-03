@@ -96,7 +96,7 @@ export function createDemoDb(): DemoDb {
     })),
     meso_cycles: [{
       id: 'meso-1', name: 'Hypertrophy Block', start_date: day(-21), end_date: day(21),
-      goal: 'Build size, add 10 lbs to bench', is_active: true, created_at: `${day(-21)}T08:00:00`,
+      goal: 'hypertrophy', is_active: true, created_at: `${day(-21)}T08:00:00`,
     }],
     micro_cycles: Array.from({ length: 6 }, (_, w) => ({
       id: `micro-${w + 1}`, meso_cycle_id: 'meso-1', week_number: w + 1,

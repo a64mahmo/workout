@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
+import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/lib/api';
@@ -75,7 +76,44 @@ export function Navigation() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreOpen, setMoreOpenRaw] = useState(false);
+  const [moreClosing, setMoreClosing] = useState(false);
+  // The tab the user just pressed. Lights up immediately, before the route
+  // finishes loading, so a tap never feels ignored.
+  // Only valid while we're still on the page it was pressed from.
+  const [pending, setPending] = useState<{ href: string; from: string } | null>(null);
+  const pendingHref = pending && pending.from === pathname ? pending.href : null;
+
+  const setMoreOpen = (next: boolean | ((o: boolean) => boolean)) => {
+    const open = typeof next === 'function' ? next(moreOpen) : next;
+    if (open) {
+      setMoreClosing(false);
+      setMoreOpenRaw(true);
+    } else if (moreOpen) {
+      // play the exit (≈ half the entrance) before unmounting
+      setMoreClosing(true);
+      setTimeout(() => {
+        setMoreOpenRaw(false);
+        setMoreClosing(false);
+      }, 140);
+    }
+  };
+
+  const currentPath = pendingHref ?? pathname;
+  const isActivePath = (href: string) => (href === '/' ? currentPath === '/' : currentPath.startsWith(href));
+  // Bottom bar slots: 0 Dashboard, 1 Sessions, 2 (+), 3 Exercises, 4 More
+  const activeSlot = isActivePath('/') ? 0
+    : isActivePath('/sessions') ? 1
+    : isActivePath('/exercises') ? 3
+    : moreNavItems.some((i) => isActivePath(i.href)) ? 4
+    : -1;
+  const onTabPress = (href: string) => {
+    setMoreOpen(false);
+    if (href !== pathname) {
+      setPending({ href, from: pathname });
+      haptic.selection();
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -116,14 +154,17 @@ export function Navigation() {
             {navItems.map((item) => {
               const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
               return (
-                <Link key={item.href} href={item.href}>
-                  <button className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:bg-muted hover:cursor-pointer',
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors hover:bg-muted',
                     isActive ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground',
-                  )}>
-                    <item.icon className={cn('size-3.5', isActive ? 'text-primary' : 'text-muted-foreground')} />
-                    <span className="hidden lg:inline">{item.label}</span>
-                  </button>
+                  )}
+                >
+                  <item.icon className={cn('size-3.5', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                  <span className="hidden lg:inline">{item.label}</span>
                 </Link>
               );
             })}
@@ -159,14 +200,32 @@ export function Navigation() {
         'fixed bottom-0 inset-x-0 z-50 md:hidden border-t bg-background/98 backdrop-blur transition-transform duration-300',
         /^\/sessions\/[^/]+/.test(pathname) ? 'translate-y-full' : 'translate-y-0',
       )} style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        <div className="flex items-center h-20 px-2">
+        <div className="relative flex items-center h-20 px-2 select-none">
+          {/* One indicator that slides between tabs (no two-tab color crossfade) */}
+          <div
+            aria-hidden
+            className="nav-indicator pointer-events-none absolute inset-y-0 left-2 flex items-center justify-center"
+            style={{
+              width: 'calc((100% - 1rem) / 5)',
+              transform: `translateX(${Math.max(activeSlot, 0) * 100}%)`,
+              opacity: activeSlot < 0 ? 0 : 1,
+            }}
+          >
+            <div className="h-14 w-[78%] rounded-2xl bg-primary/10" />
+          </div>
           {/* Left 2 items */}
           {bottomNavLeft.map((item) => {
-            const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+            const isActive = isActivePath(item.href);
             return (
-              <Link key={item.href} href={item.href} className="flex-1" onClick={() => setMoreOpen(false)}>
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? 'page' : undefined}
+                className="relative flex-1 press-spring"
+                onClick={() => onTabPress(item.href)}
+              >
                 <div className={cn(
-                  'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-colors',
+                  'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl',
                   isActive ? 'text-primary' : 'text-muted-foreground',
                 )}>
                   <item.icon className="size-5" />
@@ -179,19 +238,25 @@ export function Navigation() {
           {/* Center + button */}
           <div className="flex-1 flex justify-center">
             <button
-              onClick={() => { setMoreOpen(false); handleNewSession(); }}
+              onClick={() => { setMoreOpen(false); haptic.light(); handleNewSession(); }}
               disabled={isCreating}
-              className="size-12 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg active:scale-95 transition-transform disabled:opacity-60"
+              aria-label="Start a new session"
+              className="relative size-12 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/25 press-spring disabled:opacity-60"
             >
               {isCreating ? <span className="text-xs animate-pulse">…</span> : <Plus className="size-6" />}
             </button>
           </div>
 
           {/* Right item: Exercises */}
-          <Link href="/exercises" className="flex-1" onClick={() => setMoreOpen(false)}>
+          <Link
+            href="/exercises"
+            aria-current={isActivePath('/exercises') ? 'page' : undefined}
+            className="relative flex-1 press-spring"
+            onClick={() => onTabPress('/exercises')}
+          >
             <div className={cn(
-              'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-colors',
-              pathname.startsWith('/exercises') ? 'text-primary' : 'text-muted-foreground',
+              'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl',
+              isActivePath('/exercises') ? 'text-primary' : 'text-muted-foreground',
             )}>
               <Dumbbell className="size-5" />
               <span className="text-[10px] font-medium">Exercises</span>
@@ -200,14 +265,15 @@ export function Navigation() {
 
           {/* Right item: More */}
           <button
-            className="flex-1"
-            onClick={() => setMoreOpen(o => !o)}
+            className="relative flex-1 press-spring"
+            aria-expanded={moreOpen}
+            onClick={() => { haptic.selection(); setMoreOpen(o => !o); }}
           >
             <div className={cn(
-              'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-colors',
-              moreOpen || moreNavItems.some(i => pathname.startsWith(i.href)) ? 'text-primary' : 'text-muted-foreground',
+              'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl',
+              (moreOpen && !moreClosing) || activeSlot === 4 ? 'text-primary' : 'text-muted-foreground',
             )}>
-              {moreOpen ? <X className="size-5" /> : <MoreHorizontal className="size-5" />}
+              {moreOpen && !moreClosing ? <X className="size-5" /> : <MoreHorizontal className="size-5" />}
               <span className="text-[10px] font-medium">More</span>
             </div>
           </button>
@@ -217,16 +283,20 @@ export function Navigation() {
       {/* ── More drawer (slides up above bottom nav) ── */}
       {moreOpen && (
         <>
-          <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMoreOpen(false)} />
-          <div className="fixed bottom-20 inset-x-0 z-40 md:hidden animate-in slide-in-from-bottom-2 duration-200">
-            <div className="mx-3 mb-2 rounded-2xl border bg-background/98 backdrop-blur shadow-xl overflow-hidden">
+          <div
+            className={cn('fixed inset-0 z-40 md:hidden bg-black/30', moreClosing ? 'backdrop-out' : 'backdrop-in')}
+            onClick={() => setMoreOpen(false)}
+          />
+          <div className={cn('fixed bottom-20 inset-x-0 z-40 md:hidden', moreClosing ? 'drawer-out' : 'drawer-in')}>
+            <div className="mx-3 mb-2 rounded-2xl border bg-card shadow-2xl shadow-black/40 overflow-hidden">
               {moreNavItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
+                const isActive = isActivePath(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMoreOpen(false)}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => onTabPress(item.href)}
                     className={cn(
                       'flex items-center gap-3 px-5 py-3.5 transition-colors border-b border-border/30 last:border-0',
                       isActive ? 'text-primary bg-primary/5' : 'text-foreground hover:bg-muted/50',

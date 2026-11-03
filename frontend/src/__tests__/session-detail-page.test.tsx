@@ -416,6 +416,39 @@ describe('SessionDetailPage', () => {
       ));
     });
 
+    it('marks the set done immediately, before the save returns (optimistic)', async () => {
+      mockApi.put.mockImplementation(() => new Promise(() => {})); // save never resolves
+      await renderWithSets([makeSet({ id: 's1', set_number: 1 }), makeSet({ id: 's2', set_number: 2 })]);
+      const inputs = screen.getAllByRole('spinbutton');
+      fireEvent.change(inputs[0], { target: { value: '100' } });
+      fireEvent.change(inputs[1], { target: { value: '10' } });
+      await waitFor(() => expect(screen.getByLabelText('Complete set 1')).not.toBeDisabled());
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Complete set 1'));
+      });
+      // Row 1 is now the completed (crossed-out) row, even though PUT is still pending
+      await waitFor(() => expect(screen.queryByLabelText('Complete set 1')).toBeNull());
+      expect(screen.getByLabelText('Complete set 2')).toBeInTheDocument();
+    });
+
+    it('rolls the set back if the save fails', async () => {
+      let failSave: (e: Error) => void = () => {};
+      mockApi.put.mockImplementation(() => new Promise((_, reject) => { failSave = reject; }));
+      await renderWithSets([makeSet({ id: 's1', set_number: 1 })]);
+      const inputs = screen.getAllByRole('spinbutton');
+      fireEvent.change(inputs[0], { target: { value: '100' } });
+      fireEvent.change(inputs[1], { target: { value: '10' } });
+      await waitFor(() => expect(screen.getByLabelText('Complete set 1')).not.toBeDisabled());
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Complete set 1'));
+      });
+      // optimistically done...
+      await waitFor(() => expect(screen.queryByLabelText('Complete set 1')).toBeNull());
+      // ...then the save fails and the set comes back as pending
+      await act(async () => failSave(new Error('network down')));
+      await waitFor(() => expect(screen.getByLabelText('Complete set 1')).toBeInTheDocument());
+    });
+
     it('calls PUT /exercise-sets/:id with ghost values when inputs are empty', async () => {
       mockApi.put.mockResolvedValue({ data: makeSet({ id: 's1', set_number: 1, is_completed: true, reps: 8, weight: 150 }) });
       // s1 has template weight=150 reps=8, s2 is blank

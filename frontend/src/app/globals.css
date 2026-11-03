@@ -611,3 +611,41 @@
   .check-spark, .check-burst, .firework-spark, .firework-flash, .moving-border::before { display: none !important; }
   .press-spring, .press-spring:active { transform: none; transition: none; }
 }
+
+/* ── Navigation polish ──────────────────────────────────────────────────── */
+/* Bottom-bar indicator slides between tabs on the "knob" spring. */
+.nav-indicator {
+  transition:
+    transform var(--spring-knob-duration) var(--spring-knob),
+    opacity 200ms var(--ease-out);
+}
+/* Page enter: short fade + rise, so routes don't just pop in. */
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+/* `backwards`, not `both`: once finished the wrapper keeps no transform, so
+   position:fixed children still anchor to the viewport. */
+.page-enter { animation: pageEnter 280ms var(--ease-out) backwards; }
+/* More drawer: enter on easeOut, exit at about half the duration on easeIn. */
+@keyframes drawerIn  { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes drawerOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.drawer-in  { animation: drawerIn 260ms var(--ease-out) both; transform-origin: bottom right; }
+.drawer-out { animation: drawerOut 140ms var(--ease-in) both; transform-origin: bottom right; }
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+.backdrop-in  { animation: fadeIn 200ms var(--ease-out) both; }
+.backdrop-out { animation: fadeOut 140ms var(--ease-in) both; }
+
+/* Native-app feel on touch devices */
+html { -webkit-tap-highlight-color: transparent; }
+nav, .select-none { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .drawer-in, .drawer-out, .backdrop-in, .backdrop-out { animation: none !important; }
+  .nav-indicator { transition: opacity 0s; }
+}
+
+/* Deferred content (charts) fades in instead of popping. */
+.fade-in-soft { animation: fadeIn 240ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .fade-in-soft { animation: none !important; } }

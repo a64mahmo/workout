@@ -32,6 +32,7 @@ import { useRouteParam } from "@/lib/route-param";
 import { AnimatedNumber, CountUp } from "@/components/motion/animated-number";
 import { AnimatedCheck, Fireworks, PulsingHeart } from "@/components/motion/celebrations";
 import { Typewriter } from "@/components/motion/typewriter";
+import { haptic } from "@/lib/haptics";
 import type {
   TrainingSession,
   Exercise,
@@ -722,6 +723,7 @@ function SetRow({
           <button
             onClick={onComplete}
             disabled={!canComplete || isCompleting}
+            aria-label={`Complete set ${set.set_number}`}
             className={cn(
               "shrink-0 size-11 rounded-xl flex items-center justify-center transition-all",
               canComplete
@@ -1401,17 +1403,48 @@ export function SessionDetailInner({ id }: { id: string }) {
       });
       return res.data;
     },
-    onSuccess: (_, vars) => {
+    // Optimistic: the check, haptic and rest timer land on tap instead of
+    // after a save + refetch round trip. Rolled back if the save fails.
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ["session", id] });
+      const previous = queryClient.getQueryData<TrainingSession>(["session", id]);
+      if (previous) {
+        queryClient.setQueryData<TrainingSession>(["session", id], {
+          ...previous,
+          exercises: previous.exercises.map((se) =>
+            se.id !== vars.seId
+              ? se
+              : {
+                  ...se,
+                  sets: se.sets.map((st) =>
+                    st.id === vars.setId
+                      ? { ...st, reps: vars.reps, weight: vars.weight, rpe: vars.rpe, is_completed: true }
+                      : st,
+                  ),
+                },
+          ),
+        });
+      }
+      setJustCompletedSetId(vars.setId);
+      haptic.light();
+      setTimeout(() => setJustCompletedSetId(null), 700);
+      const cfg = restConfig[vars.seId] ?? { enabled: true, duration: 90 };
+      if (cfg.enabled) startRest(cfg.duration, vars.seId);
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["session", id], ctx.previous);
+      dismissRest();
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["session", id] });
+    },
+    onSuccess: (_, vars) => {
       setSetEdits((prev) => {
         const n = { ...prev };
         delete n[vars.setId];
         return n;
       });
-      setJustCompletedSetId(vars.setId);
-      setTimeout(() => setJustCompletedSetId(null), 700);
-      const cfg = restConfig[vars.seId] ?? { enabled: true, duration: 90 };
-      if (cfg.enabled) startRest(cfg.duration, vars.seId);
 
       // Record outcome if a suggestion exists for this exercise
       const se = session?.exercises.find((e) => e.id === vars.seId);
@@ -1575,6 +1608,7 @@ export function SessionDetailInner({ id }: { id: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["session", id] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      haptic.success();
       setIsConfettiActive(true);
       setTimeout(() => {
         setIsConfettiActive(false);
