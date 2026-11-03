@@ -31,9 +31,9 @@ Browser ──► Worker (src/index.ts)
 
 | | Worker name | AI predictions | Command |
 |---|---|---|---|
-| local | `workout-tracker-dev` | off (rules engine) | `npm run dev` |
-| staging | `workout-tracker-staging` | on | `npm run deploy:staging` |
-| production | `workout-tracker` | on | `npm run deploy` |
+| local | `workout-dev` | off (rules engine) | `npm run dev` |
+| staging | `workout-staging` | on | `npm run deploy:staging` |
+| production | `workout` | on | `npm run deploy` |
 
 **Vars** (in `wrangler.jsonc`): `ENVIRONMENT`, `ALLOWED_ORIGINS`, `FITBIT_REDIRECT_URI`, `AI_PREDICTIONS` (`on`/`off`), `AI_MODEL`.
 Production is served at `https://workout.the-desk.ca` and staging at `https://staging.workout.the-desk.ca` (custom domain routes; the `the-desk.ca` zone must be in the same Cloudflare account).
@@ -82,7 +82,8 @@ In the dashboard (Worker → Settings → Build):
 | Build command | `npm run build` (installs frontend deps and builds the static export) |
 | Deploy command | `npx wrangler deploy --env production` (staging: `--env staging`) |
 
-The Worker name in the dashboard must match the env's `name` (`workout-tracker` / `workout-tracker-staging`).
+Connect the repo to Workers named `workout` (production) and `workout-staging` (staging). Workers Builds overrides
+the config `name` with the dashboard Worker's name, so the deploy command's `--env` is what picks vars and bindings.
 Never commit `.claude/worktrees/`: it is a nested git checkout, and it breaks the clone step with
 "error occurred while updating repository submodules".
 
