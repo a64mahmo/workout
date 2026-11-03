@@ -72,6 +72,20 @@ The first deploy applies migration `v1`, which creates the `Directory` and `User
 Schema changes inside a DO need no migration (tables use `CREATE TABLE IF NOT EXISTS`).
 New DO *classes* need a new migration tag.
 
+### Cloudflare Workers Builds (git integration)
+
+In the dashboard (Worker → Settings → Build):
+
+| Setting | Value |
+|---|---|
+| Root directory | `cloudflare` |
+| Build command | `npm run build` (installs frontend deps and builds the static export) |
+| Deploy command | `npx wrangler deploy --env production` (staging: `--env staging`) |
+
+The Worker name in the dashboard must match the env's `name` (`workout-tracker` / `workout-tracker-staging`).
+Never commit `.claude/worktrees/`: it is a nested git checkout, and it breaks the clone step with
+"error occurred while updating repository submodules".
+
 ## Migrating data from Railway/Postgres
 
 ```sh

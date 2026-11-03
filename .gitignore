@@ -72,3 +72,6 @@ htmlcov/
 *.csv
 # Cloudflare data export (contains password hashes and Fitbit tokens)
 cf-export/
+
+# Claude Code worktrees (never commit; they break submodule checkout in CI/Cloudflare builds)
+.claude/worktrees/
