@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build:frontend": "cd ../frontend && NEXT_OUTPUT=export NEXT_PUBLIC_API_URL= npm run build",
+    "build": "cd ../frontend && npm ci && NEXT_OUTPUT=export NEXT_PUBLIC_API_URL= npm run build",
     "dev": "wrangler dev",
     "dev:full": "npm run build:frontend && wrangler dev",
     "deploy": "npm run build:frontend && wrangler deploy --env production",
