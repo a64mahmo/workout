@@ -70,3 +70,5 @@ htmlcov/
 .stylelintcache
 
 *.csv
+# Cloudflare data export (contains password hashes and Fitbit tokens)
+cf-export/

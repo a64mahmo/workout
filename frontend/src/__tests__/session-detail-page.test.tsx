@@ -30,13 +30,14 @@ import {
 } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import SessionDetailPage, { SessionDetailInner } from '@/app/sessions/[id]/page';
+import SessionDetailPage, { SessionDetailInner } from '@/app/sessions/[id]/client';
 import type { TrainingSession, SessionExercise, ExerciseSet, Exercise } from '@/types';
 
 // ─── mocks ──────────────────────────────────────────────────────────────────
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ back: jest.fn(), push: mockPush }),
+  usePathname: () => '/sessions/s1',
 }));
 const mockPush = jest.fn();
 

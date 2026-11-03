@@ -136,6 +136,14 @@ RAILWAY_ENVIRONMENT=production     # enables Secure flag on cookies
 
 Set the deploy branch to `prod` in Railway service settings.
 
+## Cloudflare Deployment (Workers + Durable Objects, Free plan)
+
+`cloudflare/` runs the full app on Cloudflare. A Worker serves the static
+Next.js export and a TypeScript port of the API, with per-user data in SQLite
+Durable Objects and weight predictions from Workers AI. Local/staging/production
+envs are in `cloudflare/wrangler.jsonc`. See [cloudflare/README.md](cloudflare/README.md)
+for setup, secrets, deploys and migrating data off Railway.
+
 ---
 
 ## API Endpoints
