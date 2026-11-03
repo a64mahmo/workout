@@ -88,8 +88,21 @@ describe('Frontend UI Consistency', () => {
     const collapseBtn = screen.getByLabelText(/Collapse Squat/i);
     fireEvent.click(collapseBtn);
 
-    // 4. Verify it's collapsed
-    expect(screen.getByLabelText(/Expand Squat/i)).toBeInTheDocument();
+    // 4. Collapse is two-phase (280ms fade-out, then the compact row), so wait for it
+    await waitFor(() => expect(screen.getByLabelText(/Expand Squat/i)).toBeInTheDocument());
+
+    // 5. Uncheck a set (new server data) → the card re-expands on its own
+    act(() => {
+      qc.setQueryData(['session', 'session-1'], {
+        ...mockSession,
+        exercises: [{
+          ...mockSession.exercises[0],
+          sets: [mockSession.exercises[0].sets[0], { ...mockSession.exercises[0].sets[1], is_completed: false }],
+        }],
+      });
+    });
+    await waitFor(() => expect(screen.queryByLabelText(/Expand Squat/i)).not.toBeInTheDocument());
+    expect(screen.getByText('1/2')).toBeInTheDocument();
   });
 
   test('ghost map: basic presence check', async () => {

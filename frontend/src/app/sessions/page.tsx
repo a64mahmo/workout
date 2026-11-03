@@ -204,10 +204,13 @@ function SessionCard({
   session,
   onView,
   onDelete,
+  index = 0,
 }: {
   session: TrainingSession;
   onView: () => void;
   onDelete: () => void;
+  /** Position in its list, for the staggered entrance. */
+  index?: number;
 }) {
   const vol = useMemo(() => sessionVolume(session), [session]);
   const muscleGroups = useMemo(() => sessionMuscleGroups(session), [session]);
@@ -257,11 +260,11 @@ function SessionCard({
 
   return (
     <div
-      className={`group relative flex items-center gap-1 rounded-xl border border-border bg-card overflow-hidden${isDeleting ? ' set-delete-slide' : ''}`}
+      className={`group relative flex items-center gap-1 rounded-xl border border-border bg-card overflow-hidden${isDeleting ? ' set-delete-slide' : ' stagger-in'}`}
+      style={{ '--i': index, touchAction: 'pan-y' } as React.CSSProperties}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      style={{ touchAction: 'pan-y' }}
     >
       {/* Red delete reveal */}
       <div
@@ -631,7 +634,7 @@ export default function SessionsPage() {
           {[80, 80, 300].map((h, i) => (
             <div
               key={i}
-              className="rounded-xl bg-muted animate-pulse"
+              className="rounded-xl skeleton-shimmer"
               style={{ height: h }}
             />
           ))}
@@ -743,9 +746,10 @@ export default function SessionsPage() {
                 Upcoming
               </h2>
               <div className="space-y-2">
-                {upcoming.map((s) => (
+                {upcoming.map((s, i) => (
                   <SessionCard
                     key={s.id}
+                    index={i}
                     session={s}
                     onView={() => router.push(`/sessions/${s.id}`)}
                     onDelete={() => deleteMutation.mutate(s.id)}
@@ -837,9 +841,10 @@ export default function SessionsPage() {
                     )}{' '}
                     lbs total
                   </p>
-                  {historyInMonth.map((s) => (
+                  {historyInMonth.map((s, i) => (
                     <SessionCard
                       key={s.id}
+                      index={i}
                       session={s}
                       onView={() => router.push(`/sessions/${s.id}`)}
                       onDelete={() => deleteMutation.mutate(s.id)}

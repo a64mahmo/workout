@@ -752,7 +752,7 @@ export default function SuggestionsPage() {
         </div>
 
         {loadingWeight && selectedExercise && (
-          <div className="h-24 rounded-lg bg-muted animate-pulse" />
+          <div className="h-24 rounded-lg skeleton-shimmer" />
         )}
 
         {weightSuggestion && weightMeta && (() => {
@@ -931,7 +931,7 @@ export default function SuggestionsPage() {
         {loadingEx ? (
           <div className="space-y-2">
             {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
+              <div key={i} className="h-12 rounded-lg skeleton-shimmer" />
             ))}
           </div>
         ) : filteredExercises.length === 0 ? (

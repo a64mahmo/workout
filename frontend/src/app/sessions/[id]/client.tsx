@@ -29,6 +29,9 @@ import { api } from "@/lib/api";
 import { computeGhostMap } from "@/lib/ghost-map";
 import { PREF_REST_TIMER } from "@/app/settings/page";
 import { useRouteParam } from "@/lib/route-param";
+import { AnimatedNumber, CountUp } from "@/components/motion/animated-number";
+import { AnimatedCheck, Fireworks, PulsingHeart } from "@/components/motion/celebrations";
+import { Typewriter } from "@/components/motion/typewriter";
 import type {
   TrainingSession,
   Exercise,
@@ -162,9 +165,14 @@ function RestTimer({
                   : "text-foreground",
             )}
           >
-            {mins > 0
-              ? `${mins}:${String(secs).padStart(2, "0")}`
-              : `0:${String(remaining).padStart(2, "0")}`}
+            <AnimatedNumber
+              numeric={remaining}
+              value={
+                mins > 0
+                  ? `${mins}:${String(secs).padStart(2, "0")}`
+                  : `0:${String(remaining).padStart(2, "0")}`
+              }
+            />
           </span>
         </div>
 
@@ -217,6 +225,8 @@ function InlineRestTimer({
     <div
       className={cn(
         "mx-3 my-2 rounded-xl overflow-hidden border",
+        !done && "moving-border",
+        done && "rest-done-ping",
         urgent
           ? "border-destructive/40 bg-destructive/5"
           : done
@@ -224,6 +234,11 @@ function InlineRestTimer({
             : "border-primary/20 bg-primary/5",
         "animate-in fade-in duration-200",
       )}
+      style={
+        {
+          "--moving-border-color": urgent ? "var(--destructive)" : "var(--primary)",
+        } as React.CSSProperties
+      }
     >
       <div className="h-1 w-full bg-muted/50 overflow-hidden">
         <div
@@ -247,9 +262,14 @@ function InlineRestTimer({
                   : "text-primary",
             )}
           >
-            {mins > 0
-              ? `${mins}:${String(secs).padStart(2, "0")}`
-              : `0:${String(remaining).padStart(2, "0")}`}
+            <AnimatedNumber
+              numeric={remaining}
+              value={
+                mins > 0
+                  ? `${mins}:${String(secs).padStart(2, "0")}`
+                  : `0:${String(remaining).padStart(2, "0")}`
+              }
+            />
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center gap-1">
@@ -375,7 +395,7 @@ function ExerciseHistoryPanel({
         <TrendingUp className="size-3" />
         Recent Performance
       </div>
-      {isLoading && <div className="h-10 rounded-lg bg-muted animate-pulse" />}
+      {isLoading && <div className="h-10 rounded-lg skeleton-shimmer" />}
       {data?.length === 0 && (
         <p className="text-xs text-muted-foreground">No history yet.</p>
       )}
@@ -584,12 +604,12 @@ function SetRow({
                 {isUnchecking ? (
                   <Circle className="size-5 animate-pulse" />
                 ) : (
-                  <CheckCircle2 className="size-5" />
+                  <AnimatedCheck burst={isJustCompleted} />
                 )}
               </button>
             ) : (
-              <span className="size-11 flex items-center justify-center shrink-0">
-                <CheckCircle2 className="size-5 text-emerald-500" />
+              <span className="size-11 flex items-center justify-center shrink-0 text-emerald-500">
+                <AnimatedCheck burst={isJustCompleted} />
               </span>
             )}
           </div>,
@@ -1694,9 +1714,9 @@ export function SessionDetailInner({ id }: { id: string }) {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <div className="h-14 rounded-xl bg-muted animate-pulse" />
-        <div className="h-56 rounded-xl bg-muted animate-pulse" />
-        <div className="h-56 rounded-xl bg-muted animate-pulse" />
+        <div className="h-14 rounded-xl skeleton-shimmer" />
+        <div className="h-56 rounded-xl skeleton-shimmer" />
+        <div className="h-56 rounded-xl skeleton-shimmer" />
       </div>
     );
   }
@@ -1739,6 +1759,7 @@ export function SessionDetailInner({ id }: { id: string }) {
   return (
     <div className="space-y-4 pb-36 slide-up-page">
       <ConfettiEffect active={isConfettiActive} />
+      <Fireworks active={isConfettiActive && (preSummary?.prs.length ?? 0) > 0} />
 
       {/* ── Sticky header: ← | timer | action ─────────────────────────────── */}
       <div className="sticky top-0 md:top-14 z-30 -mx-4 bg-background/95 backdrop-blur border-b px-3 py-2">
@@ -1778,7 +1799,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                 return (
                   <span className="flex items-center gap-1 text-sm font-mono font-bold tabular-nums text-foreground">
                     <Clock className="size-3.5 text-muted-foreground" />
-                    {label}
+                    <AnimatedNumber value={label} numeric={liveSecs} />
                   </span>
                 );
               })()
@@ -1918,7 +1939,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                     <Weight className="size-3" /> Volume
                   </span>
                   <span className="font-semibold tabular-nums">
-                    {fmtVol(preSummary.total_volume)} lbs
+                    <CountUp to={preSummary.total_volume} format={fmtVol} /> lbs
                   </span>
                 </div>
                 <div className="rounded-xl bg-muted/60 px-3 py-2.5 flex flex-col gap-0.5">
@@ -1946,10 +1967,11 @@ export function SessionDetailInner({ id }: { id: string }) {
                     <Trophy className="size-3.5" /> New Personal Records
                   </p>
                   <div className="space-y-1">
-                    {preSummary.prs.map((pr) => (
+                    {preSummary.prs.map((pr, i) => (
                       <div
                         key={pr.exercise_name}
-                        className="flex items-center justify-between rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/40 px-3 py-1.5"
+                        style={{ "--i": i } as React.CSSProperties}
+                        className="pr-land flex items-center justify-between rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/40 px-3 py-1.5"
                       >
                         <span className="text-xs font-medium break-words whitespace-normal mr-2">
                           {pr.exercise_name}
@@ -2053,12 +2075,13 @@ export function SessionDetailInner({ id }: { id: string }) {
               return (
                 <div
                   key={se.id}
-                  className="relative animate-in fade-in slide-in-from-bottom-2 duration-300"
-                  style={{
-                    animationDelay: `${idx * 40}ms`,
-                    animationFillMode: "both",
-                    touchAction: "pan-y",
-                  }}
+                  className="relative stagger-in"
+                  style={
+                    {
+                      "--i": idx,
+                      touchAction: "pan-y",
+                    } as React.CSSProperties
+                  }
                   onTouchStart={(e) => {
                     exTouchRef.current[se.id] = {
                       x: e.touches[0].clientX,
@@ -2408,7 +2431,7 @@ export function SessionDetailInner({ id }: { id: string }) {
 
                                             {shortReason && (
                                               <span className="ml-1.5 text-muted-foreground/40 italic break-words">
-                                                · {shortReason}
+                                                · <Typewriter text={shortReason} />
                                               </span>
                                             )}
                                           </>
@@ -3265,7 +3288,7 @@ export function SessionDetailInner({ id }: { id: string }) {
                         {[1, 2, 3, 4].map((i) => (
                           <div
                             key={i}
-                            className="h-20 rounded-2xl bg-muted animate-pulse"
+                            className="h-20 rounded-2xl skeleton-shimmer"
                           />
                         ))}
                       </div>
@@ -3427,7 +3450,9 @@ export function SessionDetailInner({ id }: { id: string }) {
             {session.average_hr || session.max_hr ? (
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <Heart className="size-4 text-red-500" />
+                  <PulsingHeart bpm={session.average_hr}>
+                    <Heart className="size-4 text-red-500" />
+                  </PulsingHeart>
                   <div>
                     <p className="text-xs text-muted-foreground">Heart Rate</p>
                     <div className="flex items-baseline gap-2">
