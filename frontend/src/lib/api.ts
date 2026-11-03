@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { demoAdapter, isDemoMode } from '@/lib/demo';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -20,6 +21,14 @@ export const api = axios.create({
     return searchParams.toString();
   },
 });
+
+const networkAdapter = api.defaults.adapter;
+
+/** Route every request to the in-browser fake backend (demo) or the real API. */
+export function setDemoAdapter(on: boolean) {
+  api.defaults.adapter = on ? demoAdapter : networkAdapter;
+}
+if (isDemoMode()) setDemoAdapter(true);
 
 api.interceptors.response.use(
   (response) => response,

@@ -59,6 +59,11 @@ beforeEach(() => {
 
 // ─── factories ───────────────────────────────────────────────────────────────
 
+// Today's local date: the history section defaults to the current month, so a
+// fixed date makes this test start failing once that month is over.
+const now = new Date();
+const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
 function makeSession(overrides: Partial<TrainingSession> = {}): TrainingSession {
   return {
     id: 'sess-1',
@@ -117,7 +122,7 @@ describe('SessionsPage — loading state', () => {
 
     await renderPage();
 
-    const skeletons = document.querySelectorAll('.animate-pulse');
+    const skeletons = document.querySelectorAll('.skeleton-shimmer');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 });
@@ -243,7 +248,7 @@ describe('SessionsPage — history section', () => {
             makeSession({
               id: 's1',
               status: 'completed',
-              actual_date: '2026-04-01',
+              actual_date: thisMonth, // history only lists the current month
               name: 'Chest Day',
             }),
           ],

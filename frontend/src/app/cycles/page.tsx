@@ -216,7 +216,7 @@ export default function CyclesPage() {
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((i) => (
-            <div key={i} className="h-36 rounded-xl bg-muted animate-pulse" />
+            <div key={i} className="h-36 rounded-xl skeleton-shimmer" />
           ))}
         </div>
       ) : cycles && cycles.length > 0 ? (

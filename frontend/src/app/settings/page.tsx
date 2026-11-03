@@ -361,7 +361,7 @@ export default function SettingsPage() {
           </div>
 
           {isLoading ? (
-            <div className="h-10 rounded-lg bg-muted animate-pulse" />
+            <div className="h-10 rounded-lg skeleton-shimmer" />
           ) : isConnected ? (
             <div className="space-y-3">
               <Button

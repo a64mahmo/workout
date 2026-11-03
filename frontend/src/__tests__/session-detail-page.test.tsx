@@ -178,8 +178,8 @@ describe('SessionDetailPage', () => {
           </QueryClientProvider>,
         );
       });
-      // animate-pulse skeletons should be present before data arrives
-      const skeletons = document.querySelectorAll('.animate-pulse');
+      // shimmer skeletons should be present before data arrives
+      const skeletons = document.querySelectorAll('.skeleton-shimmer');
       expect(skeletons.length).toBeGreaterThan(0);
     });
   });
