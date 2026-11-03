@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { ExerciseSuggestion, TrainingSession } from '@/types';
 import { useState, useMemo } from 'react';
+import { DeferredMount } from '@/components/motion/deferred-mount';
 import { useTheme } from 'next-themes';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -468,7 +469,7 @@ export default function SuggestionsPage() {
                 {metric === 'volume' ? 'Total lbs lifted per period' : 'Number of sessions completed'}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Metric toggle */}
               <div className="flex rounded-lg overflow-hidden border border-border text-xs">
                 {(['volume', 'sessions'] as Metric[]).map((m) => (
@@ -527,6 +528,7 @@ export default function SuggestionsPage() {
             </div>
           )}
 
+          <DeferredMount height={200}>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
               data={chartData}
@@ -565,6 +567,7 @@ export default function SuggestionsPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          </DeferredMount>
           {period !== 'custom' && (
             <p className="text-[11px] text-muted-foreground">
               Highlighted bar = current {period === '8W' ? 'week' : 'month'}
@@ -580,7 +583,9 @@ export default function SuggestionsPage() {
           <div className="space-y-2.5">
             {weekCompareData.map(({ mg, thisWeek: tw, lastWeek: lw }) => {
               const max = Math.max(tw, lw, 1);
-              const delta = lw > 0 ? ((tw - lw) / lw) * 100 : null;
+              // Early in the week most groups are still at 0 — that's "not yet",
+              // not a 100% drop, so only show a % once something is logged.
+              const delta = lw > 0 && tw > 0 ? ((tw - lw) / lw) * 100 : null;
               const color = MUSCLE_COLOR[mg] ?? MUSCLE_COLOR.other;
               return (
                 <div key={mg} className="space-y-1">
@@ -590,7 +595,7 @@ export default function SuggestionsPage() {
                       {mg}
                     </span>
                     <span className="flex items-center gap-2 text-muted-foreground">
-                      <span>{fmtVol(tw)} lbs</span>
+                      {tw > 0 ? <span>{fmtVol(tw)} lbs</span> : <span className="italic opacity-70">not trained yet</span>}
                       {delta !== null && (
                         <span
                           className="font-medium"
@@ -634,6 +639,7 @@ export default function SuggestionsPage() {
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">Total lbs lifted per muscle</p>
           </div>
+          <DeferredMount height={Math.max(160, muscleChartData.length * 28)}>
           <ResponsiveContainer width="100%" height={Math.max(160, muscleChartData.length * 28)}>
             <BarChart
               data={muscleChartData}
@@ -675,6 +681,7 @@ export default function SuggestionsPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          </DeferredMount>
         </section>
       )}
 
