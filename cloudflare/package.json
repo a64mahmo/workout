@@ -1,0 +1,27 @@
+{
+  "name": "workout-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:frontend": "cd ../frontend && NEXT_OUTPUT=export NEXT_PUBLIC_API_URL= npm run build",
+    "dev": "wrangler dev",
+    "dev:full": "npm run build:frontend && wrangler dev",
+    "deploy": "npm run build:frontend && wrangler deploy --env production",
+    "deploy:staging": "npm run build:frontend && wrangler deploy --env staging",
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "wrangler": "4.156.2"
+  },
+  "allowScripts": {
+    "workerd@1.20261102.1": true,
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,0 +1,6 @@
+# Local secrets for `wrangler dev`. Copy to .dev.vars (gitignored).
+# In production set each with: npx wrangler secret put <NAME> --env production
+JWT_SECRET_KEY="local-dev-secret-change-me"
+ADMIN_TOKEN="local-admin-token"
+FITBIT_CLIENT_ID=""
+FITBIT_CLIENT_SECRET=""

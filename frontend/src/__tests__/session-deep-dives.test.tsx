@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionDetailInner } from '@/app/sessions/[id]/page';
+import { SessionDetailInner } from '@/app/sessions/[id]/client';
 import { api } from '@/lib/api';
 import type { TrainingSession, Exercise, SessionExercise, ExerciseSet } from '@/types';
 
