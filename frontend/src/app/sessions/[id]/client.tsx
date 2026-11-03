@@ -33,6 +33,9 @@ import { AnimatedNumber, CountUp } from "@/components/motion/animated-number";
 import { AnimatedCheck, Fireworks, PulsingHeart } from "@/components/motion/celebrations";
 import { Typewriter } from "@/components/motion/typewriter";
 import { haptic } from "@/lib/haptics";
+import { FeedbackPanel } from "@/components/session/feedback-panel";
+import { PlateCalculator } from "@/components/session/plate-calculator";
+import type { ExerciseFeedback } from "@/lib/feedback";
 import type {
   TrainingSession,
   Exercise,
@@ -63,6 +66,7 @@ import {
   Pencil,
   Trophy,
   Clock,
+  Disc,
   Trash2,
   Sparkles,
 } from "lucide-react";
@@ -844,6 +848,9 @@ export function SessionDetailInner({ id }: { id: string }) {
   );
   const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  // Exercises whose post-exercise feedback the lifter chose to skip (this visit).
+  const [feedbackSkipped, setFeedbackSkipped] = useState<Set<string>>(() => new Set());
+  const [plateFor, setPlateFor] = useState<{ name: string; weight: number } | null>(null);
   const [isConfettiActive, setIsConfettiActive] = useState(false);
 
   // Per-set edit state
@@ -1129,8 +1136,14 @@ export function SessionDetailInner({ id }: { id: string }) {
     for (const se of session.exercises) {
       const allDone =
         se.sets.length > 0 && se.sets.every((s) => s.is_completed);
+      // During a live workout, keep the card open for the feedback check-in.
+      const awaitingFeedback =
+        session.status === "in_progress" &&
+        !se.feedback &&
+        !feedbackSkipped.has(se.id);
       if (
         allDone &&
+        !awaitingFeedback &&
         !collapsedExercises.has(se.id) &&
         !collapsingExercises.has(se.id) &&
         !userExpandedRef.current.has(se.id)
@@ -1152,7 +1165,7 @@ export function SessionDetailInner({ id }: { id: string }) {
       }
     }
     return () => timers.forEach(clearTimeout);
-  }, [session]);
+  }, [session, feedbackSkipped]);
 
   // Prefetch previous-session performance for all exercises so we can show it inline per set row
   const exerciseIds = useMemo(
@@ -1259,6 +1272,39 @@ export function SessionDetailInner({ id }: { id: string }) {
     for (const { exId, data } of suggestionsData ?? []) map[exId] = data;
     return map;
   }, [suggestionsData]);
+
+  // Pre-fill today's target (RP / MacroFactor style): once suggestions load,
+  // pending sets still on the plan's template weight (or empty) take the
+  // suggested weight, so one tap logs the prescription. Sets the lifter has
+  // typed into are left alone, and each exercise is targeted only once.
+  const autoTargetedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!session || session.status === "completed" || session.status === "cancelled") return;
+    setSetEdits((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const se of session.exercises) {
+        if (autoTargetedRef.current.has(se.id) || se.exercise.category === "bodyweight") continue;
+        const target = suggestionsMap[se.exercise_id]?.suggested_weight;
+        if (!target || target <= 0) continue;
+        for (const st of se.sets) {
+          if (st.is_completed) continue;
+          const e = next[st.id];
+          const untouched = !e || !e.weight || e.weight === String(st.weight);
+          if (untouched && e?.weight !== String(target)) {
+            next[st.id] = {
+              reps: e?.reps ?? (st.reps > 0 ? String(st.reps) : ""),
+              rpe: e?.rpe ?? "",
+              weight: String(target),
+            };
+            changed = true;
+          }
+        }
+        autoTargetedRef.current.add(se.id);
+      }
+      return changed ? next : prev;
+    });
+  }, [session, suggestionsMap]);
 
   const applyWeightSuggestion = (seId: string, weight: number) => {
     const exercise = session?.exercises.find((se) => se.id === seId);
@@ -1460,6 +1506,29 @@ export function SessionDetailInner({ id }: { id: string }) {
         }
       }
     },
+  });
+
+  // RP-style post-exercise feedback. Optimistic so the card can collapse at once.
+  const saveFeedbackMutation = useMutation({
+    mutationFn: async (data: { seId: string; feedback: ExerciseFeedback }) => {
+      await api.put(`/api/sessions/session-exercises/${data.seId}`, { feedback: data.feedback });
+    },
+    onMutate: async ({ seId, feedback }) => {
+      await queryClient.cancelQueries({ queryKey: ["session", id] });
+      const previous = queryClient.getQueryData<TrainingSession>(["session", id]);
+      if (previous) {
+        queryClient.setQueryData<TrainingSession>(["session", id], {
+          ...previous,
+          exercises: previous.exercises.map((se) => (se.id === seId ? { ...se, feedback } : se)),
+        });
+      }
+      haptic.light();
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(["session", id], ctx.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["session", id] }),
   });
 
   // Uncheck: marks is_completed=false, restores edit state with logged values
@@ -1793,6 +1862,12 @@ export function SessionDetailInner({ id }: { id: string }) {
   return (
     <div className="space-y-4 pb-36 slide-up-page">
       <ConfettiEffect active={isConfettiActive} />
+      <PlateCalculator
+        open={plateFor !== null}
+        onOpenChange={(o) => !o && setPlateFor(null)}
+        initialWeight={plateFor?.weight ?? 0}
+        exerciseName={plateFor?.name ?? ""}
+      />
       <Fireworks active={isConfettiActive && (preSummary?.prs.length ?? 0) > 0} />
 
       {/* ── Sticky header: ← | timer | action ─────────────────────────────── */}
@@ -2096,10 +2171,15 @@ export function SessionDetailInner({ id }: { id: string }) {
               const suggestion = suggestionsMap[se.exercise_id];
 
               // Compute ghost placeholder text for pending sets.
+              // Today's target (RP / MacroFactor style): pending sets show the
+              // suggested weight, so a single tap logs the prescription.
               const ghostMap = computeGhostMap(
                 se.sets,
                 (id) => getEdit(se.sets.find((s) => s.id === id)!).weight ?? "",
                 (id) => getEdit(se.sets.find((s) => s.id === id)!).reps ?? "",
+                suggestion && suggestion.suggested_weight > 0 && se.exercise.category !== "bodyweight"
+                  ? { weight: suggestion.suggested_weight }
+                  : undefined,
               );
 
               // Exercise card swipe values
@@ -2284,6 +2364,27 @@ export function SessionDetailInner({ id }: { id: string }) {
                               </div>
                             )}
                             <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+                              {se.exercise.category !== "bodyweight" && (
+                                <button
+                                  type="button"
+                                  aria-label={`Plate calculator for ${se.exercise.name}`}
+                                  title="Plate calculator"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const current = se.sets.find((x) => !x.is_completed);
+                                    const typed = current ? parseFloat(getEdit(current).weight) : NaN;
+                                    const ghostW = current ? parseFloat(ghostMap[current.id]?.weight ?? "") : NaN;
+                                    const lastDone = [...se.sets].reverse().find((x) => x.is_completed);
+                                    setPlateFor({
+                                      name: se.exercise.name,
+                                      weight: typed || ghostW || current?.weight || lastDone?.weight || 0,
+                                    });
+                                  }}
+                                  className="size-9 flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 transition-colors"
+                                >
+                                  <Disc className="size-4" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 aria-label={
@@ -2417,20 +2518,9 @@ export function SessionDetailInner({ id }: { id: string }) {
                                       disabled={!isEditing}
                                     >
                                       <span className="text-xs text-muted-foreground break-words">
-                                        {isApplied ? (
-                                          <>
-                                            <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                                              Applied
-                                            </span>
-                                            <span className="text-muted-foreground/60">
-                                              {" "}
-                                              · {
-                                                suggestion.suggested_weight
-                                              }{" "}
-                                              lbs
-                                            </span>
-                                          </>
-                                        ) : (
+                                        {/* Targets are pre-filled, so the reasoning stays visible;
+                                            an applied target just gets a small "✓ set" tag. */}
+                                        {(
                                           <>
                                             <span
                                               className={cn(
@@ -2442,6 +2532,11 @@ export function SessionDetailInner({ id }: { id: string }) {
                                             >
                                               {suggestion.suggested_weight} lbs
                                             </span>
+                                            {isApplied && (
+                                              <span className="ml-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0" title="Your sets are loaded with this target">
+                                                ✓ set
+                                              </span>
+                                            )}
 
                                             <span className="ml-1.5 font-medium text-muted-foreground shrink-0">
                                               @ RPE {suggestion.target_rpe}
@@ -2674,6 +2769,20 @@ export function SessionDetailInner({ id }: { id: string }) {
                             onDismiss={dismissRest}
                           />
                         )}
+
+                        {/* RP-style check-in once every set is done */}
+                        {session.status === "in_progress" &&
+                          totalCount > 0 &&
+                          completedCount === totalCount &&
+                          !se.feedback &&
+                          !feedbackSkipped.has(se.id) && (
+                            <FeedbackPanel
+                              exerciseName={se.exercise.name}
+                              saving={saveFeedbackMutation.isPending && saveFeedbackMutation.variables?.seId === se.id}
+                              onSave={(feedback) => saveFeedbackMutation.mutate({ seId: se.id, feedback })}
+                              onSkip={() => setFeedbackSkipped((prev) => new Set(prev).add(se.id))}
+                            />
+                          )}
 
                         {/* Add Set */}
                         <div className="px-3 py-2 border-t border-border/20">

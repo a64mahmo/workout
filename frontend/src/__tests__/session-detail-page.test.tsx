@@ -937,3 +937,89 @@ describe('SessionDetailPage', () => {
   });
 
 });
+
+describe('RP-style feedback and plate calculator', () => {
+  const doneSets = [
+    makeSet({ id: 's1', set_number: 1, reps: 8, weight: 135, is_completed: true }),
+    makeSet({ id: 's2', set_number: 2, reps: 8, weight: 135, is_completed: true }),
+  ];
+
+  it('asks for feedback once every set of an exercise is done, and saves it', async () => {
+    await renderPage(makeSession({ status: 'in_progress', exercises: [makeExercise({ id: 'se-1', sets: doneSets })] }));
+    // Behave like the server: once saved, the session comes back with the feedback.
+    let saved: unknown = null;
+    mockApi.put.mockImplementation(async (_url: string, body?: unknown) => {
+      saved = (body as { feedback?: unknown }).feedback;
+      return { data: {} };
+    });
+    const baseGet = mockApi.get.getMockImplementation()!;
+    mockApi.get.mockImplementation(async (url: string, config?: unknown) => {
+      const res = (await baseGet(url, config as never)) as { data: TrainingSession };
+      if (url === '/api/sessions/session-1' && saved) {
+        return { data: { ...res.data, exercises: res.data.exercises.map((e) => ({ ...e, feedback: saved })) } };
+      }
+      return res;
+    });
+    await waitFor(() => screen.getByText('How did that feel?'));
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'Amazing' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Hard' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'None' }));
+    expect(save).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(save);
+    });
+    await waitFor(() =>
+      expect(mockApi.put).toHaveBeenCalledWith('/api/sessions/session-exercises/se-1', { feedback: { pump: 2, workload: 2, joints: 0 } }),
+    );
+    // optimistic: the panel goes away straight away
+    await waitFor(() => expect(screen.queryByText('How did that feel?')).toBeNull());
+  });
+
+  it('can be skipped, and is not asked again once feedback exists', async () => {
+    await renderPage(makeSession({ status: 'in_progress', exercises: [makeExercise({ id: 'se-1', sets: doneSets })] }));
+    await waitFor(() => screen.getByText('How did that feel?'));
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(screen.queryByText('How did that feel?')).toBeNull());
+    expect(mockApi.put).not.toHaveBeenCalled();
+  });
+
+  it('does not ask while sets are pending or on a finished session', async () => {
+    await renderPage(makeSession({ status: 'in_progress', exercises: [makeExercise({ id: 'se-1', sets: [doneSets[0], makeSet({ id: 's2', set_number: 2 })] })] }));
+    await waitFor(() => screen.getByText('Bench Press'));
+    expect(screen.queryByText('How did that feel?')).toBeNull();
+  });
+
+  it('opens the plate calculator with the working weight', async () => {
+    await renderPage(makeSession({ status: 'in_progress', exercises: [makeExercise({ id: 'se-1', sets: [makeSet({ id: 's1', set_number: 1, reps: 5, weight: 225 })] })] }));
+    await waitFor(() => screen.getByText('Bench Press'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Plate calculator for Bench Press'));
+    });
+    await waitFor(() => screen.getByText(/Each side:/));
+    expect(screen.getByText('2 × 45')).toBeInTheDocument();
+  });
+});
+
+describe('pre-filled targets (RP / MacroFactor style)', () => {
+  it('fills pending sets with the suggested weight, but keeps what the lifter typed', async () => {
+    const session = makeSession({
+      status: 'in_progress',
+      exercises: [makeExercise({ id: 'se-1', sets: [makeSet({ id: 's1', set_number: 1, reps: 6, weight: 195 }), makeSet({ id: 's2', set_number: 2, reps: 6, weight: 195 })] })],
+    });
+    await renderPage(session);
+    const base = mockApi.get.getMockImplementation()!;
+    mockApi.get.mockImplementation(async (url: string, config?: unknown) =>
+      url.includes('/suggestions/weight')
+        ? { data: { suggested_weight: 190, suggested_sets: 2, adjustment_reason: 'hold', previous_weight: 190, meso_week: 3, meso_phase: 'accumulation', target_rpe: 8 } }
+        : base(url, config as never),
+    );
+    await waitFor(() => screen.getByText('Bench Press'));
+    // suggestions are fetched after the session; re-render picks up the target
+    await waitFor(() => {
+      const weights = screen.getAllByRole('spinbutton').filter((_, i) => i % 3 === 0).map((el) => (el as HTMLInputElement).value);
+      expect(weights).toEqual(['190', '190']);
+    }, { timeout: 4000 });
+  });
+});

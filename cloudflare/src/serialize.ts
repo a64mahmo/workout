@@ -1,6 +1,7 @@
 // Response shapes matching the pydantic models in backend/app/schemas.
 import type { Ctx } from "./router";
 import type { Db, Row } from "./db";
+import { parseFeedback } from "./feedback";
 
 export const exerciseOut = (e: Row) => ({
   id: e.id,
@@ -72,6 +73,7 @@ function sessionExerciseOut(se: Row, sets: Row[], exercises: Map<string, Row>) {
     exercise_id: se.exercise_id ?? null,
     order_index: se.order_index ?? 0,
     notes: se.notes ?? null,
+    feedback: parseFeedback(se.feedback),
     rest_seconds: 60,
     sets: sets.map(setOut),
     exercise: ex ? exerciseOut(ex) : null,

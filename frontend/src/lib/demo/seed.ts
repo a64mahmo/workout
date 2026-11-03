@@ -162,6 +162,19 @@ export function createDemoDb(): DemoDb {
     });
   });
 
+  // Feedback from the last Upper A (RP-style): bench felt easy → expect +1 set
+  // today; overhead press bothered the shoulder → its weight is held.
+  // (Feedback is read from the most recent session that had the exercise:
+  // Upper A for bench/row, Upper B for overhead press.)
+  const FEEDBACK: Record<string, Record<string, Row>> = {
+    'sess-past-5': { 'ex-bench': { pump: 1, workload: 0, joints: 0 }, 'ex-row': { pump: 2, workload: 1, joints: 0 } },
+    'sess-past-7': { 'ex-ohp': { pump: 2, workload: 2, joints: 1 } },
+  };
+  for (const se of db.session_exercises) {
+    const fb = FEEDBACK[se.session_id]?.[se.exercise_id];
+    if (fb) se.feedback = fb;
+  }
+
   // Today's workout: Upper A, prefilled from the plan, not started yet.
   const [psId, name, exs] = PLAN_DAYS[0];
   db.sessions.push({

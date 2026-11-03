@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Row } from "../db";
 import { int, notFound, nowIso, num, opt, parse, pyFloat as f, pyRound, str, uuid } from "../http";
 import { aiEnabled, predict } from "../ai";
+import { applyFeedback, describeFeedback, parseFeedback } from "../feedback";
 import { calculateSuggestion, type SessionStats, type SuggestionResult } from "../progression";
 import type { Router } from "../router";
 
@@ -222,6 +223,17 @@ export function suggestionRoutes(r: Router) {
     }
     suggestion ??= calculateSuggestion(last, mesoWeek, mesoTotalWeeks);
 
+    // ── RP-style feedback from the last session of this exercise ──
+    const lastFeedback = parseFeedback(
+      db.scalar(
+        "SELECT feedback FROM session_exercises WHERE session_id = ? AND exercise_id = ? AND feedback IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+        lastSets[0].session_id,
+        exerciseId,
+      ),
+    );
+    const fb = applyFeedback(suggestion, lastFeedback, last.top_weight);
+    suggestion = fb.suggestion;
+
     const volPrev = prev ? prev.volume : null;
     const volLast = last.volume;
     const trend =
@@ -237,17 +249,23 @@ export function suggestionRoutes(r: Router) {
         date: sets[0].scheduled_date ?? null,
         sets: [...sets].reverse().map((x) => ({ weight: Number(x.weight), reps: x.reps ?? null, rpe: x.rpe ?? null })),
       }));
-      const cacheKey = [env.AI_MODEL, exerciseId, lastSets[0].session_id, q.session_id ?? "", planRpe ?? "", planReps ?? "", rulesWeight, suggestion.suggested_sets].join("|");
+      const cacheKey = [env.AI_MODEL, exerciseId, lastSets[0].session_id, q.session_id ?? "", planRpe ?? "", planReps ?? "", rulesWeight, suggestion.suggested_sets, JSON.stringify(lastFeedback)].join("|");
       const ai = await predict(env, db, cacheKey, {
         exerciseName,
         history,
         planTargetReps: planReps,
         planTargetRpe: planRpe,
+        feedback: lastFeedback ? describeFeedback(lastFeedback) : null,
         rules: suggestion,
       });
       if (ai) {
         source = "ai";
         suggestion = { ...suggestion, suggested_weight: ai.suggested_weight, suggested_sets: ai.suggested_sets, adjustment_reason: ai.reason };
+        // The feedback weight cap is a guardrail: the AI can't override it.
+        if (lastFeedback && (lastFeedback.joints >= 1 || lastFeedback.workload === 3) && suggestion.suggested_weight > last.top_weight) {
+          suggestion = { ...suggestion, suggested_weight: last.top_weight };
+        }
+        if (fb.note) suggestion = { ...suggestion, adjustment_reason: `${suggestion.adjustment_reason} | ${fb.note}` };
       }
     }
 
@@ -283,6 +301,8 @@ export function suggestionRoutes(r: Router) {
       suggestion: suggestion.adjustment_reason,
       percentage: last.top_weight ? pyRound((suggestion.suggested_weight / last.top_weight) * 100, 1) : 100,
       log_id: logId,
+      feedback: lastFeedback,
+      feedback_note: fb.note,
       prediction_source: source,
       rules_suggested_weight: rulesWeight,
       rules_adjustment_reason: rulesReason,

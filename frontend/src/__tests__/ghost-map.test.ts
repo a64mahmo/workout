@@ -140,3 +140,26 @@ describe('computeGhostMap', () => {
     });
   });
 });
+
+describe('computeGhostMap — today\'s target (RP / MacroFactor style)', () => {
+  it('uses the target weight over the plan template on a fresh exercise', () => {
+    const sets = [makeSet({ id: 'a', weight: 195, reps: 6 }), makeSet({ id: 'b', weight: 195, reps: 6 })];
+    const map = computeGhostMap(sets, noEdit, noEdit, { weight: 190 });
+    expect(map.a).toEqual({ weight: '190', reps: '6' });
+    expect(map.b).toEqual({ weight: '190', reps: '6' });
+  });
+
+  it('follows what was actually lifted once a set is logged', () => {
+    const sets = [
+      makeSet({ id: 'a', weight: 185, reps: 6, is_completed: true }),
+      makeSet({ id: 'b', weight: 195, reps: 6 }),
+    ];
+    expect(computeGhostMap(sets, noEdit, noEdit, { weight: 190 }).b).toEqual({ weight: '185', reps: '6' });
+  });
+
+  it('ignores a missing or zero target', () => {
+    const sets = [makeSet({ id: 'a', weight: 195, reps: 6 })];
+    expect(computeGhostMap(sets, noEdit, noEdit, { weight: 0 }).a).toEqual({ weight: '195', reps: '6' });
+    expect(computeGhostMap(sets, noEdit, noEdit, undefined).a).toEqual({ weight: '195', reps: '6' });
+  });
+});

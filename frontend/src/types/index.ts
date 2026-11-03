@@ -56,6 +56,8 @@ export interface SessionExercise {
   order_index: number;
   notes?: string;
   rest_seconds?: number;
+  /** RP-style post-exercise feedback (pump / workload / joints). */
+  feedback?: import('@/lib/feedback').ExerciseFeedback | null;
   exercise: Exercise;
   sets: ExerciseSet[];
 }

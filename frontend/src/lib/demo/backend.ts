@@ -2,6 +2,7 @@
 // response shapes of the backend (see cloudflare/src/serialize.ts) closely
 // enough for every page to work. Nothing here touches the network.
 import { createDemoDb, day, nowIso, type DemoDb, type Row } from './seed';
+import { applyFeedback, isValidFeedback, type ExerciseFeedback } from '@/lib/feedback';
 
 const STORAGE_KEY = 'workout-demo-db';
 
@@ -57,6 +58,7 @@ function sessionExerciseOut(d: DemoDb, se: Row): Row {
   const ex = d.exercises.find((e) => e.id === se.exercise_id);
   return {
     ...se,
+    feedback: se.feedback ?? null,
     rest_seconds: 60,
     exercise_name: null,
     exercise: ex ? exerciseOut(ex) : null,
@@ -117,11 +119,15 @@ function suggestWeight(d: DemoDb, q: Record<string, string>) {
     .filter((s) => s.status === 'completed')
     .sort((a, b) => String(b.scheduled_date).localeCompare(String(a.scheduled_date)));
   const history: Row[][] = [];
+  const historySessionIds: string[] = [];
   for (const s of done) {
     const sets = d.session_exercises
       .filter((se) => se.session_id === s.id && se.exercise_id === exId)
       .flatMap((se) => d.sets.filter((x) => x.session_exercise_id === se.id && x.is_completed && !x.is_warmup && x.weight > 0));
-    if (sets.length) history.push(sets);
+    if (sets.length) {
+      history.push(sets);
+      historySessionIds.push(s.id);
+    }
   }
   const ts = q.session_id ? d.sessions.find((s) => s.id === q.session_id) : null;
   const pe = ts?.plan_session_id ? d.plan_exercises.find((p) => p.plan_session_id === ts.plan_session_id && p.exercise_id === exId) : null;
@@ -158,18 +164,27 @@ function suggestWeight(d: DemoDb, q: Record<string, string>) {
   });
   const e1rm = Math.round(top * (1 + (topSet.reps + (10 - (topSet.rpe ?? 8))) / 30) * 10) / 10;
 
+  // RP-style feedback from the last session of this exercise (same rules as the API)
+  const lastFeedback = (d.session_exercises.find((se) => se.session_id === historySessionIds[0] && se.exercise_id === exId && se.feedback)?.feedback ?? null) as ExerciseFeedback | null;
+  const fb = applyFeedback(
+    { suggested_weight: suggested, suggested_sets: Math.min(12, last.length + (kind === 'up' ? 0 : kind === 'down' ? -1 : 0)) || 1, adjustment_reason: reason, meso_phase: 'intensification' },
+    lastFeedback,
+    top,
+  );
+
   d.suggestion_logs.push({
     id: logId, exercise_id: exId, meso_cycle_id: q.meso_cycle_id ?? null, previous_weight: top, average_rpe: avgRpe,
-    suggested_weight: suggested, adjustment_reason: reason, actual_weight: null, actual_reps: null, actual_rpe: null, created_at: nowIso(),
+    suggested_weight: fb.suggestion.suggested_weight, adjustment_reason: fb.suggestion.adjustment_reason, actual_weight: null, actual_reps: null, actual_rpe: null, created_at: nowIso(),
   });
   return {
-    previous_weight: top, suggested_weight: suggested, average_rpe: avgRpe, adjustment_reason: reason,
+    previous_weight: top, suggested_weight: fb.suggestion.suggested_weight, average_rpe: avgRpe, adjustment_reason: fb.suggestion.adjustment_reason,
     meso_week: 4, meso_phase: 'intensification', meso_phase_label: 'Week 4 - Intensify', target_rpe: targetRpe,
     session_volume: vol, set_count: last.length, previous_volume: prevVol,
     volume_trend: prevVol == null ? 'no prior data' : vol > prevVol * 1.05 ? 'increasing' : vol < prevVol * 0.95 ? 'decreasing' : 'stable',
-    suggested_sets: Math.min(12, last.length + (kind === 'up' ? 0 : kind === 'down' ? -1 : 0)) || 1,
+    suggested_sets: fb.suggestion.suggested_sets,
     volume_directive: 'Approach MRV, maintain or cut 1 set if very sore', estimated_1rm: e1rm, average_weight: top,
-    suggestion: reason, percentage: Math.round((suggested / top) * 1000) / 10, log_id: logId,
+    suggestion: fb.suggestion.adjustment_reason, percentage: Math.round((fb.suggestion.suggested_weight / top) * 1000) / 10, log_id: logId,
+    feedback: lastFeedback, feedback_note: fb.note,
     prediction_source: 'ai', rules_suggested_weight: suggested, rules_adjustment_reason: reason,
   };
 }
@@ -319,6 +334,7 @@ on('GET', '/sessions/:id/pre-summary', (p, _b, _q, d) => {
 on('POST', '/sessions/:id/complete', (p, _b, _q, d) => {
   const s = get(d.sessions, p.id, 'Session');
   let total = 0;
+  d.volume_history = d.volume_history.filter((v) => v.session_id !== s.id); // re-finish must not double-count
   for (const { se, sets } of doneSets(d, s.id)) {
     const v = sets.filter((x) => x.is_completed && !x.is_warmup && x.reps && x.weight).reduce((a, x) => a + x.reps * x.weight, 0);
     if (v > 0) {
@@ -326,7 +342,7 @@ on('POST', '/sessions/:id/complete', (p, _b, _q, d) => {
       d.volume_history.push({ id: id('vh'), exercise_id: se.exercise_id, session_id: s.id, total_volume: v, calculated_at: nowIso() });
     }
   }
-  Object.assign(s, { status: 'completed', end_time: nowIso(), actual_date: s.actual_date || day(0), total_volume: total, average_hr: 121, max_hr: 168 });
+  Object.assign(s, { status: 'completed', start_time: s.start_time ?? nowIso(), end_time: nowIso(), actual_date: s.actual_date || day(0), total_volume: total, average_hr: 121, max_hr: 168 });
   return { message: 'Session completed', total_volume: total };
 });
 on('POST', '/sessions/:id/exercises', (p, b, _q, d) => {
@@ -335,7 +351,13 @@ on('POST', '/sessions/:id/exercises', (p, b, _q, d) => {
   d.session_exercises.push(se);
   return sessionExerciseOut(d, se);
 });
-on('PUT', '/sessions/session-exercises/:id', (p, b, _q, d) => sessionExerciseOut(d, Object.assign(get(d.session_exercises, p.id, 'Session exercise'), pick(b, ['order_index', 'notes']))));
+on('PUT', '/sessions/session-exercises/:id', (p, b, _q, d) => {
+  const se = get(d.session_exercises, p.id, 'Session exercise');
+  if (b && 'feedback' in b && b.feedback !== null && !isValidFeedback(b.feedback)) {
+    throw new DemoHttpError(422, [{ loc: ['body', 'feedback'], msg: 'Invalid feedback', type: 'value_error' }]);
+  }
+  return sessionExerciseOut(d, Object.assign(se, pick(b, ['order_index', 'notes', 'feedback'])));
+});
 on('DELETE', '/sessions/session-exercises/:id', (p, _b, _q, d) => {
   get(d.session_exercises, p.id, 'Session exercise');
   deleteSessionExercise(d, p.id);

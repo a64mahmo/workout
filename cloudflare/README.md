@@ -126,6 +126,18 @@ The response shape is unchanged, with three added fields: `prediction_source` (`
 The binding only exists in staging and production, because it always calls the real service. To try AI locally,
 run `npx wrangler login && npx wrangler dev --env staging`.
 
+## Session logic (beyond the Python API)
+
+- **Finishing a workout** keeps the real `start_time`, records `end_time`, and is idempotent (re-finishing doesn't double-count volume).
+- **RP-style feedback:** `PUT /api/sessions/session-exercises/{id}` accepts `feedback: {pump 0-2, workload 0-3, joints 0-2}`.
+  The next `GET /api/suggestions/weight` for that exercise adjusts the result:
+  - workload "too much" or a lot of joint pain → −1 set
+  - easy with low or moderate pump → +1 set
+  - any joint discomfort or "too much" → weight held at last session's top weight (the AI can't override this)
+
+  The response adds `feedback` and `feedback_note`, and the note is appended to `adjustment_reason`. Logic lives in `src/feedback.ts`.
+  Existing stores get the new `session_exercises.feedback` column automatically (`COLUMN_MIGRATIONS` in `src/schema.ts`).
+
 ## Free-plan limits to know
 
 - **10ms CPU per request.** Password hashing on login/register is the heaviest step. PBKDF2-SHA256 at 100k

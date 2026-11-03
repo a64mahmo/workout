@@ -6,7 +6,9 @@
  * this priority order:
  *   1. Last completed non-warmup set (survives after completing a set, because
  *      the edit entry for that set is deleted when it is marked complete)
- *   2. First pending set's template value (e.g. plan pre-fill on a fresh session)
+ *   2. Today's target (RP / MacroFactor style): the suggested weight and the
+ *      target reps, so one tap logs the prescription
+ *   3. First pending set's template value (e.g. plan pre-fill on a fresh session)
  *
  * As we walk forward through pending sets, any set that has a typed value
  * replaces the running ghost if it is numerically greater.
@@ -31,11 +33,13 @@ export interface GhostValues {
  *                     or '' / undefined when nothing has been typed yet.
  * @param editRepsFn   Returns the currently typed reps string for a set id,
  *                     or '' / undefined when nothing has been typed yet.
+ * @param target       Optional prescription for today (e.g. the suggestion).
  */
 export function computeGhostMap(
   sets: SetLike[],
   editWeightFn: (id: string) => string,
   editRepsFn: (id: string) => string,
+  target?: { weight?: number | null; reps?: number | null },
 ): Record<string, GhostValues> {
   const ghostMap: Record<string, GhostValues> = {};
 
@@ -49,7 +53,11 @@ export function computeGhostMap(
     }
   }
 
-  // Step 2: fall back to template values on the first pending set.
+  // Step 2: today's target, if nothing has been logged yet.
+  if (!lastGhostWeight && target?.weight && target.weight > 0) lastGhostWeight = String(target.weight);
+  if (!lastGhostReps && target?.reps && target.reps > 0) lastGhostReps = String(target.reps);
+
+  // Step 3: fall back to template values on the first pending set.
   if (!lastGhostWeight || !lastGhostReps) {
     const firstPending = sets.find(s => !s.is_completed);
     if (firstPending) {
@@ -60,7 +68,7 @@ export function computeGhostMap(
     }
   }
 
-  // Step 3: walk pending sets in order, propagating / updating the ghost.
+  // Step 4: walk pending sets in order, propagating / updating the ghost.
   for (const s of sets) {
     if (s.is_completed) continue;
     const editWeight = editWeightFn(s.id);
