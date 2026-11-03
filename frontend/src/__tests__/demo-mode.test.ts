@@ -97,3 +97,31 @@ it('exiting demo wipes the fake data', async () => {
   expect(isDemoMode()).toBe(false);
   expect(sessionStorage.getItem('workout-demo-db')).toBeNull();
 });
+
+it('applies last session\'s RP-style feedback to suggestions, and saves new feedback', async () => {
+  // Seeded: bench felt easy (moderate pump) last time → +1 set; OHP had joint discomfort → load held
+  const bench = (await api.get('/api/suggestions/weight', { params: { exercise_id: 'ex-bench', session_id: 'sess-today' } })).data;
+  expect(bench.feedback_note).toContain('+1 set');
+  expect(bench.adjustment_reason.split(' | ').pop()).toBe(bench.feedback_note);
+  const ohp = (await api.get('/api/suggestions/weight', { params: { exercise_id: 'ex-ohp', session_id: 'sess-today' } })).data;
+  expect(ohp.suggested_weight).toBeLessThanOrEqual(ohp.previous_weight);
+
+  const se = (await api.get('/api/sessions/sess-today')).data.exercises[0];
+  await expect(api.put(`/api/sessions/session-exercises/${se.id}`, { feedback: { pump: 5, workload: 0, joints: 0 } })).rejects.toMatchObject({ response: { status: 422 } });
+  const saved = (await api.put(`/api/sessions/session-exercises/${se.id}`, { feedback: { pump: 2, workload: 2, joints: 0 } })).data;
+  expect(saved.feedback).toEqual({ pump: 2, workload: 2, joints: 0 });
+});
+
+it('finishing twice keeps the start time and does not double-count volume', async () => {
+  const s = (await api.get('/api/sessions/sess-today')).data;
+  await api.post('/api/sessions/sess-today/start');
+  const started = (await api.get('/api/sessions/sess-today')).data.start_time;
+  await api.put(`/api/sessions/exercise-sets/${s.exercises[0].sets[0].id}`, { weight: 200, reps: 5, is_completed: true });
+  await api.post('/api/sessions/sess-today/complete');
+  const before = (await api.get('/api/suggestions/muscle-groups')).data.chest;
+  await api.post('/api/sessions/sess-today/complete');
+  const after = (await api.get('/api/sessions/sess-today')).data;
+  expect(after.start_time).toBe(started);
+  expect(after.end_time >= after.start_time).toBe(true);
+  expect((await api.get('/api/suggestions/muscle-groups')).data.chest).toBe(before);
+});

@@ -29,6 +29,8 @@ export interface PredictionInput {
   history: { date: string | null; sets: { weight: number; reps: number | null; rpe: number | null }[] }[];
   planTargetReps: number | null;
   planTargetRpe: number | null;
+  /** Lifter's feedback after the last session of this exercise, in words. */
+  feedback?: string | null;
   rules: RulesSuggestion;
 }
 
@@ -62,6 +64,7 @@ function prompt(p: PredictionInput): string {
     `Recent sessions (weight x reps @RPE):`,
     ...lines,
     plan,
+    ...(p.feedback ? [`Lifter feedback after last session: ${p.feedback}.`] : []),
     `Meso week ${p.rules.meso_week}, phase "${p.rules.meso_phase}", target RPE ${p.rules.target_rpe}.`,
     `Rules baseline: ${f(p.rules.suggested_weight)} lbs for ${p.rules.suggested_sets} sets (${p.rules.adjustment_reason}).`,
   ].join("\n");

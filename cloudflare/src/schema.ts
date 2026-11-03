@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS session_exercises (
   session_id TEXT NOT NULL,
   exercise_id TEXT,
   order_index INTEGER DEFAULT 0,
-  notes TEXT
+  notes TEXT,
+  feedback TEXT -- JSON {pump 0-2, workload 0-3, joints 0-2}, RP-style post-exercise feedback
 );
 CREATE INDEX IF NOT EXISTS ix_se_session ON session_exercises(session_id);
 CREATE INDEX IF NOT EXISTS ix_se_exercise ON session_exercises(exercise_id);
@@ -197,7 +198,7 @@ export const TABLE_COLUMNS: Record<string, string[]> = {
     "id", "meso_cycle_id", "micro_cycle_id", "plan_session_id", "name", "scheduled_date", "actual_date",
     "status", "notes", "total_volume", "created_at", "start_time", "end_time", "average_hr", "max_hr",
   ],
-  session_exercises: ["id", "session_id", "exercise_id", "order_index", "notes"],
+  session_exercises: ["id", "session_id", "exercise_id", "order_index", "notes", "feedback"],
   exercise_sets: ["id", "session_exercise_id", "set_number", "reps", "weight", "rpe", "is_warmup", "is_completed"],
   health_metrics: [
     "id", "session_id", "date", "sleep_duration_seconds", "sleep_score", "sleep_efficiency", "weight_kg",
@@ -209,3 +210,12 @@ export const TABLE_COLUMNS: Record<string, string[]> = {
     "adjustment_reason", "actual_weight", "actual_reps", "actual_rpe", "created_at",
   ],
 };
+
+/**
+ * Additive column migrations for stores created before a column existed.
+ * CREATE TABLE IF NOT EXISTS never alters an existing table, so each entry is
+ * applied when PRAGMA table_info shows the column is missing.
+ */
+export const COLUMN_MIGRATIONS: { table: string; column: string; ddl: string }[] = [
+  { table: "session_exercises", column: "feedback", ddl: "ALTER TABLE session_exercises ADD COLUMN feedback TEXT" },
+];

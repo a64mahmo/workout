@@ -7,7 +7,7 @@ import { fitbitRoutes } from "./routes/fitbit";
 import { planRoutes, seedPrograms } from "./routes/plans";
 import { sessionRoutes } from "./routes/sessions";
 import { suggestionRoutes } from "./routes/suggestions";
-import { SCHEMA, TABLE_COLUMNS } from "./schema";
+import { COLUMN_MIGRATIONS, SCHEMA, TABLE_COLUMNS } from "./schema";
 
 const router = new Router();
 router.get("/auth/me", ({ db }) => {
@@ -42,7 +42,12 @@ export class UserStore extends DurableObject<Env> {
     super(ctx, env);
     this.db = new Db(ctx.storage.sql);
     ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(SCHEMA);
+      const sql = this.ctx.storage.sql;
+      sql.exec(SCHEMA);
+      for (const m of COLUMN_MIGRATIONS) {
+        const cols = sql.exec<{ name: string }>(`PRAGMA table_info(${m.table})`).toArray().map((c) => c.name);
+        if (!cols.includes(m.column)) sql.exec(m.ddl);
+      }
     });
   }
 

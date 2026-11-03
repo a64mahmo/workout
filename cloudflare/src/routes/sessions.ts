@@ -3,6 +3,7 @@ import type { Db } from "../db";
 import { bool, int, notFound, nowIso, num, opt, parse, str, toNaiveUtc, uuid } from "../http";
 import type { Ctx, Router } from "../router";
 import { loadSessionExercise, loadSessions, setOut } from "../serialize";
+import { FeedbackSchema } from "../feedback";
 
 const SessionCreate = z.object({
   name: str,
@@ -28,7 +29,7 @@ const SessionUpdate = z.object({
   max_hr: opt(int),
 });
 const SeCreate = z.object({ exercise_id: str, order_index: int.default(0), notes: opt(str) });
-const SeUpdate = z.object({ order_index: opt(int), notes: opt(str) });
+const SeUpdate = z.object({ order_index: opt(int), notes: opt(str), feedback: opt(FeedbackSchema) });
 const SetCreate = z.object({
   set_number: int,
   reps: opt(int),
@@ -190,6 +191,8 @@ export function sessionRoutes(r: Router) {
     const { db } = c;
     const s = getSession(c, id);
     let totalVolume = 0;
+    // Re-finishing (after editing a completed session) must not double-count.
+    db.run("DELETE FROM volume_history WHERE session_id = ?", id);
     for (const se of s.exercises) {
       let v = 0;
       for (const x of se.sets) if (x.is_completed && !x.is_warmup && x.reps && x.weight) v += x.reps * x.weight;
@@ -200,10 +203,13 @@ export function sessionRoutes(r: Router) {
         }
       }
     }
-    // Same as the Python API: completion stamps start_time with "now".
+    // Keep the real start time and record when it ended, so durations are
+    // right. (The Python API overwrote start_time here and never set end_time.)
+    const finishedAt = nowIso();
     db.update("training_sessions", id, {
       status: "completed",
-      start_time: nowIso(),
+      start_time: s.start_time ?? finishedAt,
+      end_time: finishedAt,
       actual_date: s.actual_date || today(),
       total_volume: totalVolume,
     });
@@ -227,7 +233,9 @@ export function sessionRoutes(r: Router) {
   r.put("/sessions/session-exercises/:id", ({ db, body }, { id }) => {
     const b = parse(SeUpdate, body);
     if (!db.get("session_exercises", id)) throw notFound("Session exercise");
-    db.update("session_exercises", id, b);
+    const patch: Record<string, unknown> = { ...b };
+    if ("feedback" in b) patch.feedback = b.feedback ? JSON.stringify(b.feedback) : null;
+    db.update("session_exercises", id, patch);
     return loadSessionExercise(db, id);
   });
 
